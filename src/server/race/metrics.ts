@@ -24,6 +24,12 @@ export class MetricsTracker {
   private reportedModelMs: number | null = null;
   private reportedCost: number | null = null;
   private endedAt: number | null = null;
+  private lastToolEnd = 0;
+  /** Totals carried over from earlier rounds; a CLI's "total" figures restart with each run. */
+  private baseTokens: TokenUsage = { input: null, output: null, cacheRead: null, cacheWrite: null, reasoning: null };
+  private baseCost: number | null = null;
+  private baseTurns = 0;
+  private sawTurnsBefore = false;
 
   constructor(
     private prices: PriceTable,
@@ -54,9 +60,12 @@ export class MetricsTracker {
         a.byKind[ev.kind]++;
         if (ev.kind === 'command') a.commands++;
         if (ev.kind === 'edit' && this.m.time.firstEditMs === null) this.m.time.firstEditMs = t;
-        if (this.openCount() === 0) this.toolBusySince = t;
-        if (ev.kind === 'command' && this.openCount('command') === 0) this.commandBusySince = t;
-        this.openTools.set(ev.id, { kind: ev.kind, start: t });
+        // Reported after the fact: count it from when the CLI says it began, never before the last tool ended.
+        const start = ev.agoMs ? Math.max(this.lastToolEnd, t - ev.agoMs) : t;
+        if (ev.kind === 'edit' && this.m.time.firstEditMs === t) this.m.time.firstEditMs = start;
+        if (this.openCount() === 0) this.toolBusySince = start;
+        if (ev.kind === 'command' && this.openCount('command') === 0) this.commandBusySince = start;
+        this.openTools.set(ev.id, { kind: ev.kind, start });
         break;
       }
       case 'tool_end': {
@@ -67,6 +76,7 @@ export class MetricsTracker {
         if (this.openCount() === 0 && this.toolBusySince !== null) {
           this.toolMs += Math.max(0, t - this.toolBusySince);
           this.toolBusySince = null;
+          this.lastToolEnd = t;
         }
         if (open.kind === 'command' && this.openCount('command') === 0 && this.commandBusySince !== null) {
           this.commandMs += Math.max(0, t - this.commandBusySince);
@@ -79,12 +89,12 @@ export class MetricsTracker {
         for (const key of ['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning'] as (keyof TokenUsage)[]) {
           const v = ev.usage[key];
           if (typeof v !== 'number' || !Number.isFinite(v)) continue;
-          tok[key] = ev.mode === 'add' ? (tok[key] ?? 0) + v : v;
+          tok[key] = ev.mode === 'add' ? (tok[key] ?? 0) + v : (this.baseTokens[key] ?? 0) + v;
         }
         break;
       }
       case 'cost':
-        if (Number.isFinite(ev.usd)) this.reportedCost = ev.usd;
+        if (Number.isFinite(ev.usd)) this.reportedCost = (this.baseCost ?? 0) + ev.usd;
         break;
       case 'error':
         a.errors++;
@@ -108,6 +118,37 @@ export class MetricsTracker {
     this.endedAt = t;
   }
 
+  /** A follow-up round begins: the clock runs again, and this run's totals add to the earlier ones. */
+  resume(): void {
+    this.endedAt = null;
+    this.baseTokens = { ...this.m.tokens };
+    this.baseCost = this.reportedCost;
+    const soFar = this.reportedTurns ?? (this.turnEvents > 0 ? this.turnEvents : null);
+    if (soFar !== null) this.sawTurnsBefore = true;
+    this.baseTurns += soFar ?? 0;
+    this.reportedTurns = null;
+    this.turnEvents = 0;
+    this.reportedModelMs = null;
+  }
+
+  /** Rebuild a tracker from saved metrics, so a race reopened after a restart can still take a follow-up. */
+  static restore(prices: PriceTable, requestedModel: string, saved: LaneMetrics): MetricsTracker {
+    const t = new MetricsTracker(prices, requestedModel);
+    t.m.tokens = { ...saved.tokens };
+    t.m.model = saved.model;
+    t.m.cliVersion = saved.cliVersion;
+    t.m.time.firstEditMs = saved.time.firstEditMs;
+    t.m.activity = { ...saved.activity, byKind: { ...saved.activity.byKind }, turns: null };
+    t.reportedTurns = saved.activity.turns;
+    t.toolMs = saved.time.toolMs ?? 0;
+    t.commandMs = saved.time.commandMs ?? 0;
+    t.sawTools = saved.time.toolMs !== null;
+    t.lastToolEnd = saved.time.wallMs;
+    if (saved.cost.source === 'reported') t.reportedCost = saved.cost.usd;
+    t.endedAt = saved.time.wallMs;
+    return t;
+  }
+
   /** Current cost in USD if known, for enforcing the cost limit. */
   costNow(): number | null {
     return this.cost().usd;
@@ -117,6 +158,12 @@ export class MetricsTracker {
     if (this.reportedCost !== null) return { usd: this.reportedCost, source: 'reported' };
     const est = estimateCost(this.prices, this.m.model ?? this.requestedModel, this.m.tokens);
     return est === null ? { usd: null, source: null } : { usd: est, source: 'estimated' };
+  }
+
+  private turnsNow(): number | null {
+    const thisRun = this.reportedTurns ?? (this.turnEvents > 0 ? this.turnEvents : null);
+    if (thisRun === null && !this.sawTurnsBefore) return null;
+    return this.baseTurns + (thisRun ?? 0);
   }
 
   /** Mutable outcome/code/live fields are owned by the engine and merged in here. */
@@ -149,7 +196,7 @@ export class MetricsTracker {
       activity: {
         ...this.m.activity,
         byKind: { ...this.m.activity.byKind },
-        turns: this.reportedTurns ?? (this.turnEvents > 0 ? this.turnEvents : null),
+        turns: this.turnsNow(),
       },
       filesChangedLive: extra.filesChangedLive,
       code: extra.code,

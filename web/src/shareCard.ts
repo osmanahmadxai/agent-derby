@@ -2,7 +2,7 @@
  * The shareable result card: a 1200x630 PNG drawn by hand on a canvas.
  * Same honesty rules as the table: null is "not reported", estimated cost carries "est.".
  */
-import { NOT_REPORTED, allDone, finishPositions, fmtCompact, fmtDuration, fmtMoney, laneModel, shortSha, stateLabel } from './format';
+import { NOT_REPORTED, allDone, finishPositions, fmtCompact, fmtDuration, fmtMoney, laneSub, shortSha, stateLabel } from './format';
 import { totalTokens } from './types';
 import type { Lane, Race } from './types';
 
@@ -61,7 +61,8 @@ function safeColor(ctx: CanvasRenderingContext2D, color: string, fallback: strin
   return String(ctx.fillStyle);
 }
 
-export function drawShareCard(canvas: HTMLCanvasElement, race: Race, ranked: Lane[]): void {
+/** `sub` gives a lane's secondary line; the default is its model and effort. */
+export function drawShareCard(canvas: HTMLCanvasElement, race: Race, ranked: Lane[], sub: (lane: Lane) => string = laneSub): void {
   canvas.width = CARD_W;
   canvas.height = CARD_H;
   const ctx = canvas.getContext('2d');
@@ -152,9 +153,9 @@ export function drawShareCard(canvas: HTMLCanvasElement, race: Race, ranked: Lan
       ctx.fillText(fit(ctx, lane.agentName, nameW), cols.name, mid - 2);
       ctx.font = `400 17px ${BODY}`;
       ctx.fillStyle = C.muted;
-      ctx.fillText(fit(ctx, laneModel(lane), nameW), cols.name, mid + 22);
+      ctx.fillText(fit(ctx, sub(lane), nameW), cols.name, mid + 22);
     } else {
-      ctx.fillText(fit(ctx, `${lane.agentName}  ${laneModel(lane)}`, nameW), cols.name, mid + 8);
+      ctx.fillText(fit(ctx, `${lane.agentName}  ${sub(lane)}`, nameW), cols.name, mid + 8);
     }
 
     // state

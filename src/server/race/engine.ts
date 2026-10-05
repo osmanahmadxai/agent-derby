@@ -10,6 +10,7 @@ import {
   rankLanes,
   type BuildOutcome,
   type FeedItem,
+  type JudgeRequest,
   type KeepRequest,
   type Lane,
   type LaneDiff,
@@ -31,7 +32,9 @@ import { childEnv, isWindows, killTree, spawnGroup, spawnShell, stopTree, trackP
 import { PreviewManager } from '../preview/manager.js';
 import { buildPrompt } from '../preview/plan.js';
 import { wrap, wrapShell, type SandboxStatus } from '../sandbox.js';
+import { judgeLane } from './judge.js';
 import { MetricsTracker, parseTestCounts } from './metrics.js';
+import { buildReplay } from './replay.js';
 import { loadPrices } from './pricing.js';
 import {
   checkRepo,
@@ -56,6 +59,8 @@ type StopReason = 'stopped' | 'timed_out' | 'over_budget';
 interface Internal {
   repoRoot: string | null;
   resultRefs: Record<string, string>;
+  /** Each lane's CLI session id, so a follow-up round can continue it even after a restart. */
+  sessions?: Record<string, string>;
 }
 
 interface LaneRuntime {
@@ -214,8 +219,24 @@ export class RaceEngine extends EventEmitter {
     const race = readJson<Race | null>(file, null);
     if (!race || !Array.isArray(race.lanes)) return null;
     const internal = readJson<Internal>(path.join(raceDir(id), 'internal.json'), { repoRoot: null, resultRefs: {} });
+    // Races saved by older versions lack the newer fields.
+    race.rounds ??= [];
+    race.blind ??= false;
+    race.vote ??= null;
+    race.judging = false;
+    race.judgeError ??= null;
+    race.suiteId ??= null;
+    for (const lane of race.lanes) {
+      lane.effort ??= '';
+      lane.round ??= 1;
+      lane.judge ??= null;
+    }
     const rt: RaceRuntime = { race, internal, lanes: new Map(), ticker: null, saveTimer: null };
-    for (const lane of race.lanes) rt.lanes.set(lane.id, newRuntimeLane(lane));
+    for (const lane of race.lanes) {
+      const lr = newRuntimeLane(lane);
+      lr.sessionId = internal.sessions?.[lane.id] ?? null;
+      rt.lanes.set(lane.id, lr);
+    }
     this.races.set(id, rt);
     return rt;
   }
@@ -297,19 +318,14 @@ export class RaceEngine extends EventEmitter {
     for (const id of ids) {
       const race = this.races.get(id)?.race ?? readJson<Race | null>(path.join(raceDir(id), 'race.json'), null);
       if (!race?.lanes) continue;
-      const done = race.lanes.every((l) => isTerminal(l.state));
-      const first = rankLanes(race.lanes)[0];
-      out.push({
-        id: race.id,
-        createdAt: race.createdAt,
-        state: race.state,
-        task: race.setup.task,
-        source: race.setup.source,
-        lanes: race.lanes.map((l) => ({ id: l.id, agentName: l.agentName, color: l.color, state: l.state, wallMs: l.metrics.time.wallMs, model: l.metrics.model })),
-        winner: done && first?.state === 'finished' ? first.agentName : null,
-      });
+      out.push(summarize(race));
     }
     return out.sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  summary(id: string): RaceSummary | null {
+    const race = this.get(id);
+    return race ? summarize(race) : null;
   }
 
   private loadFeed(rt: RaceRuntime, lr: LaneRuntime): FeedItem[] {
@@ -341,7 +357,7 @@ export class RaceEngine extends EventEmitter {
   // Creating and starting
   // -------------------------------------------------------------------------
 
-  async create(setup: RaceSetup): Promise<Race> {
+  async create(setup: RaceSetup, extra: { suiteId?: string } = {}): Promise<Race> {
     const task = (setup.task ?? '').trim();
     if (!task) throw new Error('Describe the task first');
     if (!Array.isArray(setup.entrants) || setup.entrants.length === 0) throw new Error('Pick at least one agent');
@@ -361,11 +377,12 @@ export class RaceEngine extends EventEmitter {
     const prompt = buildPrompt(task);
     const cleanSetup: RaceSetup = {
       task,
-      entrants: setup.entrants.map((e) => ({ agentId: e.agentId, model: (e.model ?? '').trim(), options: e.options ?? {} })),
+      entrants: setup.entrants.map((e) => ({ agentId: e.agentId, model: (e.model ?? '').trim(), options: e.options ?? {}, effort: (e.effort ?? '').trim() })),
       source: repoRoot ? { type: 'repo', path: repoRoot } : { type: 'empty' },
       finishCommand: setup.finishCommand?.trim() || undefined,
       timeLimitSec: setup.timeLimitSec && setup.timeLimitSec > 0 ? setup.timeLimitSec : undefined,
       costLimitUsd: setup.costLimitUsd && setup.costLimitUsd > 0 ? setup.costLimitUsd : undefined,
+      blind: Boolean(setup.blind) || undefined,
     };
 
     const race: Race = {
@@ -381,8 +398,14 @@ export class RaceEngine extends EventEmitter {
       lanes: [],
       error: null,
       appVersion: APP_VERSION,
+      rounds: [],
+      blind: Boolean(setup.blind),
+      vote: null,
+      judging: false,
+      judgeError: null,
+      suiteId: extra.suiteId ?? null,
     };
-    const rt: RaceRuntime = { race, internal: { repoRoot, resultRefs: {} }, lanes: new Map(), ticker: null, saveTimer: null };
+    const rt: RaceRuntime = { race, internal: { repoRoot, resultRefs: {}, sessions: {} }, lanes: new Map(), ticker: null, saveTimer: null };
 
     const used = new Map<string, number>();
     for (const entrant of cleanSetup.entrants) {
@@ -402,13 +425,19 @@ export class RaceEngine extends EventEmitter {
       used.set(adapter.id, n);
       const laneId = n === 1 ? adapter.id : `${adapter.id}-${n}`;
       const model = entrant.model ?? '';
+      // Only pass on an effort level the CLI actually has.
+      const effort = entrant.effort && (adapter.efforts ?? []).includes(entrant.effort) ? entrant.effort : '';
+      const label = [model, effort ? `${effort} effort` : ''].filter(Boolean).join(' · ');
       const lane: Lane = {
         id: laneId,
         agentId: adapter.id,
-        agentName: model ? `${adapter.name} · ${model}` : adapter.name,
+        agentName: label ? `${adapter.name} · ${label}` : adapter.name,
         kind: adapter.kind,
         color: n === 1 ? adapter.color : shiftHue(adapter.color, (n - 1) * 47),
         requestedModel: model,
+        effort,
+        round: 1,
+        judge: null,
         state: 'pending',
         stateReason: null,
         startedAt: null,
@@ -434,6 +463,7 @@ export class RaceEngine extends EventEmitter {
         workspace: lane.workspace,
         model,
         options: entrant.options ?? {},
+        effort,
         costLimitUsd: cleanSetup.costLimitUsd,
       };
       race.lanes.push(lane);
@@ -493,19 +523,27 @@ export class RaceEngine extends EventEmitter {
     return rt.internal.resultRefs[`base:${laneId}`] ?? rt.race.baseRef ?? 'HEAD';
   }
 
-  private spawnLane(rt: RaceRuntime, lr: LaneRuntime): void {
+  /** Start a lane's agent. With `followUp`, continue its earlier session with that prompt instead. */
+  private spawnLane(rt: RaceRuntime, lr: LaneRuntime, followUp?: string): void {
     const { lane } = lr;
     const adapter = lr.adapter!;
-    const ctx = lr.ctx!;
-    lr.tracker = new MetricsTracker(this.prices, lane.requestedModel);
-    lane.startedAt = Date.now();
-    lr.lastActivity = lane.startedAt;
+    const ctx = followUp === undefined ? lr.ctx! : { ...lr.ctx!, prompt: followUp };
+    if (followUp === undefined) {
+      lr.tracker = new MetricsTracker(this.prices, lane.requestedModel);
+      lane.startedAt = Date.now();
+    } else {
+      // The lane's clock is its total active time across rounds: restart it from where it stopped.
+      lr.tracker ??= MetricsTracker.restore(this.prices, lane.requestedModel, lane.metrics);
+      lr.tracker.resume();
+      lane.startedAt = Date.now() - lane.metrics.time.wallMs;
+    }
+    lr.lastActivity = Date.now();
     lane.state = 'running';
     lane.now = { kind: 'starting', text: `Starting ${adapter.name}` };
 
     let spec;
     try {
-      spec = adapter.start(ctx);
+      spec = followUp === undefined ? adapter.start(ctx) : adapter.resume!({ ...ctx, sessionId: lr.sessionId ?? '' });
       lr.parser = adapter.createParser(ctx);
     } catch (e) {
       this.finishLane(rt, lr, 'failed', `Could not build the command line: ${(e as Error).message}`);
@@ -519,11 +557,14 @@ export class RaceEngine extends EventEmitter {
 
     this.pushFeed(lr, {
       type: 'system',
-      text: adapter.ownSandbox
-        ? `Workspace ready. Confinement: ${adapter.name}'s own sandbox.`
-        : sandboxed
-          ? `Workspace ready. Confinement: ${this.sandbox.label}.`
-          : `Workspace ready. No OS sandbox (${this.sandbox.reason}); the agent is separated by workspace only.`,
+      text:
+        followUp !== undefined
+          ? `Round ${lane.round}: ${followUp}`
+          : adapter.ownSandbox
+            ? `Workspace ready. Confinement: ${adapter.name}'s own sandbox.`
+            : sandboxed
+              ? `Workspace ready. Confinement: ${this.sandbox.label}.`
+              : `Workspace ready. No OS sandbox (${this.sandbox.reason}); the agent is separated by workspace only.`,
     });
 
     let child: ChildProcess;
@@ -624,7 +665,10 @@ export class RaceEngine extends EventEmitter {
     lr.tracker?.onEvent(ev, t);
     switch (ev.type) {
       case 'init':
-        if (ev.sessionId) lr.sessionId = ev.sessionId;
+        if (ev.sessionId) {
+          lr.sessionId = ev.sessionId;
+          (rt.internal.sessions ??= {})[lr.lane.id] = ev.sessionId;
+        }
         if (ev.model && !lr.byId.has(`init:${ev.model}`)) {
           this.pushFeed(lr, { type: 'system', text: `Model: ${ev.model}` }, `init:${ev.model}`);
         }
@@ -1054,6 +1098,152 @@ export class RaceEngine extends EventEmitter {
     fs.rmSync(raceDir(raceId), { recursive: true, force: true });
   }
 
+  // -------------------------------------------------------------------------
+  // Follow-up rounds, the AI judge, blind voting, replay
+  // -------------------------------------------------------------------------
+
+  /**
+   * Send the same follow-up prompt to every lane whose agent can continue its
+   * session. Each carries on in its own workspace; its clock and counters keep
+   * adding up, and its result and preview are refreshed when it finishes.
+   */
+  async followUp(raceId: string, promptText: string): Promise<{ continued: string[]; skipped: string[] }> {
+    const rt = this.need(raceId);
+    const prompt = (promptText ?? '').trim();
+    if (!prompt) throw new Error('Write the follow-up first');
+    if ([...rt.lanes.values()].some((lr) => !isTerminal(lr.lane.state))) throw new Error('Wait until every lane has ended');
+
+    const continued: string[] = [];
+    const skipped: string[] = [];
+    const ready: LaneRuntime[] = [];
+    const entrants = rt.race.setup.entrants;
+    let index = 0;
+    for (const lr of rt.lanes.values()) {
+      const entrant = entrants[index++];
+      const adapter = lr.adapter ?? getAdapter(lr.lane.agentId);
+      const usable = adapter?.resume && lr.sessionId && fs.existsSync(lr.lane.workspace) && lr.lane.state !== 'stopped';
+      const det = usable ? await detectCached(adapter!) : null;
+      if (!usable || !det?.path || det.auth === 'missing') {
+        skipped.push(lr.lane.agentName);
+        continue;
+      }
+      lr.adapter = adapter!;
+      lr.ctx ??= {
+        exe: det.path,
+        prompt: rt.race.prompt,
+        workspace: lr.lane.workspace,
+        model: lr.lane.requestedModel,
+        options: entrant?.options ?? {},
+        effort: lr.lane.effort,
+        costLimitUsd: rt.race.setup.costLimitUsd,
+      };
+      ready.push(lr);
+      continued.push(lr.lane.agentName);
+    }
+    if (ready.length === 0) throw new Error('None of these agents can continue a session, so there is nobody to send a follow-up to');
+
+    await this.previews.stopRace(raceId);
+    rt.race.rounds.push({ prompt, at: Date.now() });
+    rt.race.state = 'running';
+    // Like each lane's clock, the race clock counts active time: the gap between rounds is left out.
+    const activeSoFar = Math.max(0, (rt.race.endedAt ?? Date.now()) - (rt.race.startedAt ?? Date.now()));
+    rt.race.startedAt = Date.now() - activeSoFar;
+    rt.race.endedAt = null;
+    for (const lr of ready) {
+      const { lane } = lr;
+      this.loadFeed(rt, lr);
+      lane.round = (lane.round ?? 1) + 1;
+      lane.state = 'running';
+      lane.stateReason = null;
+      lane.endedAt = null;
+      lane.exitCode = null;
+      lane.preview = emptyPreview();
+      lane.judge = null; // the result is about to change, so an earlier verdict no longer applies
+      lr.stopReason = null;
+      lr.result = null;
+      lr.authError = null;
+      lr.lastError = null;
+      lr.stderrTail = [];
+      lr.byId.clear();
+      lr.toolStart.clear();
+      lr.openTools.clear();
+      lr.extra.outcome = { ...lr.extra.outcome, finish: rt.race.setup.finishCommand ? 'not_run' : 'not_set', finishExitCode: null, tests: null, build: 'not_run', preview: 'not_run' };
+    }
+    // Same tick for everyone, as at the start of the race.
+    for (const lr of ready) this.spawnLane(rt, lr, prompt);
+    this.send({ type: 'race', race: rt.race });
+    this.save(rt, true);
+    rt.ticker ??= setInterval(() => this.tick(rt), 500);
+    return { continued, skipped };
+  }
+
+  /** Record the user's pick in a blind race (or a reveal without a pick). */
+  vote(raceId: string, laneId: string | null): void {
+    const rt = this.need(raceId);
+    if (laneId !== null && !rt.lanes.has(laneId)) throw new Error('Lane not found');
+    rt.race.vote = { laneId, at: Date.now() };
+    this.send({ type: 'race_patch', raceId, patch: { vote: rt.race.vote } });
+    this.save(rt, true);
+  }
+
+  /**
+   * Ask one agent to give its opinion of every result. The judge sees the task
+   * and each lane's changes, never which agent made them. Runs in the
+   * background; progress arrives as race and lane patches.
+   */
+  async judge(raceId: string, req: JudgeRequest): Promise<void> {
+    const rt = this.need(raceId);
+    if (rt.race.judging) throw new Error('A judge is already working on this race');
+    const adapter = getAdapter(req.agentId);
+    if (!adapter) throw new Error(`Unknown agent "${req.agentId}"`);
+    const det = await detectCached(adapter);
+    if (!det.installed || !det.path) throw new Error(`${adapter.name} is not installed`);
+    if (det.auth === 'missing') throw new Error(`${adapter.name} is not signed in, so it cannot judge`);
+    const lanes = [...rt.lanes.values()].filter((lr) => isTerminal(lr.lane.state) && rt.internal.resultRefs[lr.lane.id]);
+    if (lanes.length === 0) throw new Error('There are no finished results to judge yet');
+
+    const patch = (p: Partial<Race>) => {
+      Object.assign(rt.race, p);
+      this.send({ type: 'race_patch', raceId, patch: p });
+    };
+    patch({ judging: true, judgeError: null });
+    const model = (req.model ?? '').trim();
+    const exe = det.path;
+    void (async () => {
+      const problems: string[] = [];
+      await Promise.all(
+        lanes.map(async (lr) => {
+          try {
+            const diff = await this.diff(raceId, lr.lane.id);
+            const verdict = await judgeLane({
+              adapter,
+              exe,
+              model,
+              sandbox: this.sandbox,
+              scratch: path.join(raceDir(raceId), 'judge', lr.lane.id),
+              task: rt.race.setup.task,
+              rounds: rt.race.rounds.map((r) => r.prompt),
+              diff,
+              endedAs: lr.lane.state,
+            });
+            lr.lane.judge = verdict;
+            this.send({ type: 'lane', raceId, laneId: lr.lane.id, patch: { judge: verdict } });
+          } catch (e) {
+            problems.push(`${lr.lane.agentName}: ${(e as Error).message}`);
+          }
+        }),
+      );
+      patch({ judging: false, judgeError: problems.length ? `No verdict for ${problems.join('; ')}` : null });
+      this.save(rt, true);
+    })();
+  }
+
+  /** A single self-contained web page that replays this race. */
+  replayHtml(raceId: string): string {
+    const rt = this.need(raceId);
+    return buildReplay(rt.race, Object.fromEntries([...rt.lanes.values()].map((lr) => [lr.lane.id, this.loadFeed(rt, lr)])));
+  }
+
   exportRace(raceId: string): unknown {
     const rt = this.need(raceId);
     return {
@@ -1138,4 +1328,18 @@ function shiftHue(hex: string, degrees: number): string {
   const base = l - c / 2;
   const [r2, g2, b2] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
   return `#${[r2, g2, b2].map((v) => Math.round((v + base) * 255).toString(16).padStart(2, '0')).join('')}`;
+}
+
+export function summarize(race: Race): RaceSummary {
+  const done = race.lanes.every((l) => isTerminal(l.state));
+  const first = rankLanes(race.lanes)[0];
+  return {
+    id: race.id,
+    createdAt: race.createdAt,
+    state: race.state,
+    task: race.setup.task,
+    source: race.setup.source,
+    lanes: race.lanes.map((l) => ({ id: l.id, agentName: l.agentName, color: l.color, state: l.state, wallMs: l.metrics.time.wallMs, model: l.metrics.model })),
+    winner: done && first?.state === 'finished' ? first.agentName : null,
+  };
 }

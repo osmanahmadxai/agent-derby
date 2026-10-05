@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { childEnv, isWindows, killTree, trackProcess, untrackProcess, which } from './proc.js';
+import { childEnv, envForCwd, isWindows, killTree, trackProcess, untrackProcess, which } from './proc.js';
 
 /**
  * Interactive terminals for terminal previews and CLI sign-in.
@@ -60,7 +60,7 @@ export function ptyBackend(): PtyBackend {
 }
 
 export function openTerminal(opts: TerminalOptions): Terminal {
-  const env = childEnv({ TERM: 'xterm-256color', COLORTERM: 'truecolor', ...opts.env }) as Record<string, string>;
+  const env = envForCwd(childEnv({ TERM: 'xterm-256color', COLORTERM: 'truecolor', ...opts.env }), opts.cwd) as Record<string, string>;
   const cols = opts.cols ?? 80;
   const rows = opts.rows ?? 24;
   const pty = loadNodePty();

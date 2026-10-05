@@ -23,8 +23,10 @@ export type AgentEvent =
    * A tool call began. `pending` means the model is still writing the call
    * (shown in the lane, but not yet counted as tool time); a later tool_start
    * with the same id and no `pending` starts the clock and fills in the target.
+   * CLIs that only report a tool once it has finished pass `agoMs`: how long
+   * ago it actually started, taken from the CLI's own timestamps.
    */
-  | { type: 'tool_start'; id: string; kind: ToolKind; name: string; target: string | null; pending?: boolean }
+  | { type: 'tool_start'; id: string; kind: ToolKind; name: string; target: string | null; pending?: boolean; agoMs?: number }
   | { type: 'tool_end'; id: string; ok: boolean; output?: string; exitCode?: number | null }
   /** One model round-trip began. */
   | { type: 'turn' }
@@ -63,6 +65,8 @@ export interface StartContext {
   /** '' = let the CLI pick its default. */
   model: string;
   options: Record<string, string>;
+  /** Thinking effort, one of the adapter's `efforts`; '' = the CLI's default. */
+  effort: string;
   costLimitUsd?: number;
 }
 
@@ -99,6 +103,10 @@ export interface AgentAdapter {
   sandboxNote: string | null;
   /** npm package that provides the official CLI, enabling one-click install. */
   managed?: { npmPackage: string; bin: string };
+  /** Thinking-effort levels the CLI accepts, lowest first. */
+  efforts?: string[];
+  /** 'basic' = output is shown as text; tool calls, tokens and cost are not understood. Default 'full'. */
+  support?: 'full' | 'basic';
   /** True when the CLI confines itself (then Agent Derby does not wrap it in a second sandbox). */
   ownSandbox?: boolean;
   /** Paths outside the workspace the CLI must be able to write (its own state folder). */
@@ -110,6 +118,11 @@ export interface AgentAdapter {
   start(ctx: StartContext): SpawnSpec;
   /** A fresh parser for one run. */
   createParser(ctx: StartContext): EventParser;
+  /**
+   * Optional: command line that continues an earlier session with a new prompt,
+   * in the same workspace. Enables follow-up rounds for this agent.
+   */
+  resume?(ctx: StartContext & { sessionId: string }): SpawnSpec;
   /** Optional custom stop; by default the engine signals the process group. */
   stop?(pid: number): void;
   /** Optional: usage the CLI only exposes out-of-band (session files, a usage subcommand). */

@@ -2,6 +2,7 @@ import { Component, useEffect, useState, type ErrorInfo, type ReactNode } from '
 import { History } from './components/History';
 import { RacePage } from './components/RacePage';
 import { Setup } from './components/Setup';
+import { SuitePage } from './components/SuitePage';
 import { useHashRoute } from './router';
 import { hub, type SocketStatus } from './socket';
 
@@ -46,7 +47,7 @@ export function App() {
     return hub.onStatus(setStatus);
   }, []);
 
-  const key = route.name === 'race' ? `race:${route.id}` : route.name;
+  const key = route.name === 'race' || route.name === 'suite' ? `${route.name}:${route.id}` : route.name;
 
   return (
     <div className={`app route-${route.name}`}>
@@ -79,6 +80,7 @@ export function App() {
           {route.name === 'setup' && <Setup />}
           {route.name === 'history' && <History />}
           {route.name === 'race' && <RacePage key={route.id} raceId={route.id} />}
+          {route.name === 'suite' && <SuitePage key={route.id} suiteId={route.id} />}
         </Boundary>
       </main>
     </div>

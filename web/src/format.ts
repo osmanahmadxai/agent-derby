@@ -2,7 +2,7 @@
  * Pure helpers: formatting, ranking, the comparison table model, feed merging and diff parsing.
  * No React and no DOM in here, so everything can be unit-tested.
  */
-import type { FeedItem, Lane, LaneMetrics, LaneState, Maybe, NowStatus, PreviewInfo, Race, ToolKind } from './types';
+import type { FeedItem, JudgeVerdict, Lane, LaneMetrics, LaneState, Maybe, NowStatus, PreviewInfo, Race, RaceSummary, ToolKind } from './types';
 import { TOOL_KINDS, emptyMetrics, emptyPreview, isTerminal, rankLanes, totalTokens } from './types';
 
 /** The one and only rendering of a null metric. */
@@ -12,6 +12,11 @@ export const ESTIMATE_TOOLTIP =
   'Estimated: computed from the token counts and the price table in config/pricing.json. It is not a measurement from the CLI.';
 export const DERIVED_TOOLTIP =
   'Derived from event timings: wall time minus the time spent inside tools. The CLI did not report it.';
+/** Goes with every AI-judge score, wherever one is shown. */
+export const OPINION_TOOLTIP =
+  "One AI model's opinion of the result. Not a measurement. The judge is not told which agent built what.";
+/** Stands in for anything that would give an agent away in a blind race. */
+export const HIDDEN_TEXT = 'hidden until you vote';
 
 // ---------------------------------------------------------------------------
 // Numbers
@@ -169,6 +174,18 @@ export function normalizeMetrics(m: Partial<LaneMetrics> | null | undefined): La
   };
 }
 
+function normalizeJudge(j: JudgeVerdict | null | undefined): JudgeVerdict | null {
+  if (!j || typeof j !== 'object' || typeof j.score !== 'number' || !Number.isFinite(j.score)) return null;
+  return {
+    ...j,
+    summary: j.summary ?? '',
+    strengths: Array.isArray(j.strengths) ? j.strengths : [],
+    problems: Array.isArray(j.problems) ? j.problems : [],
+    judgeAgent: j.judgeAgent ?? 'an AI judge',
+    judgeModel: j.judgeModel ?? null,
+  };
+}
+
 export function normalizeLane(l: Lane): Lane {
   const now: NowStatus = l.now && typeof l.now.text === 'string' ? l.now : { kind: 'waiting', text: '' };
   const preview: PreviewInfo = { ...emptyPreview(), ...(l.preview ?? {}) };
@@ -177,6 +194,9 @@ export function normalizeLane(l: Lane): Lane {
     agentName: l.agentName ?? l.agentId ?? 'agent',
     color: l.color || '#7a86a8',
     requestedModel: l.requestedModel ?? '',
+    effort: typeof l.effort === 'string' ? l.effort : '',
+    round: typeof l.round === 'number' && l.round >= 1 ? l.round : 1,
+    judge: normalizeJudge(l.judge),
     state: l.state ?? 'pending',
     stateReason: l.stateReason ?? null,
     now,
@@ -201,6 +221,12 @@ export function normalizeRace(r: Race): Race {
     },
     prompt: r.prompt ?? '',
     promptSha256: r.promptSha256 ?? '',
+    rounds: Array.isArray(r.rounds) ? r.rounds.filter((x) => x && typeof x.prompt === 'string') : [],
+    blind: r.blind === true,
+    vote: r.vote && typeof r.vote === 'object' ? { laneId: r.vote.laneId ?? null, at: r.vote.at ?? 0 } : null,
+    judging: r.judging === true,
+    judgeError: r.judgeError ?? null,
+    suiteId: r.suiteId ?? null,
   };
 }
 
@@ -225,18 +251,32 @@ export function laneModel(lane: Lane): string {
   return lane.metrics.model || lane.requestedModel || 'default model';
 }
 
+/** Secondary text for a lane: its model, plus the thinking effort when one was requested. */
+export function laneSub(lane: Lane): string {
+  const model = laneModel(lane);
+  return lane.effort ? `${model} · ${lane.effort} effort` : model;
+}
+
+export function judgeScoreText(score: number): string {
+  return `${Math.round(score * 10) / 10}/10`;
+}
+
 export function allDone(lanes: Lane[]): boolean {
   return lanes.length > 0 && lanes.every((l) => isTerminal(l.state));
 }
 
-export type SortKey = 'time' | 'cost' | 'tokens' | 'lines';
+export type SortKey = 'time' | 'cost' | 'tokens' | 'lines' | 'judge';
 
 export const SORT_LABELS: Record<SortKey, string> = {
   time: 'Time',
   cost: 'Cost',
   tokens: 'Tokens',
   lines: 'Lines changed',
+  judge: 'AI judge score',
 };
+
+/** The judge score is the one key where more is better. */
+export const SORT_HIGHER: Record<SortKey, boolean> = { time: false, cost: false, tokens: false, lines: false, judge: true };
 
 export function sortValue(lane: Lane, key: SortKey): Maybe<number> {
   switch (key) {
@@ -248,11 +288,13 @@ export function sortValue(lane: Lane, key: SortKey): Maybe<number> {
       return totalTokens(lane.metrics.tokens);
     case 'lines':
       return laneLinesChanged(lane);
+    case 'judge':
+      return lane.judge ? lane.judge.score : null;
   }
 }
 
 /**
- * Successful finishes first, then ascending by the chosen metric.
+ * Successful finishes first, then ascending by the chosen metric (descending for the AI judge score).
  * A lane that did not report the metric sorts after those that did; ties fall back to time.
  */
 export function sortLanes(lanes: Lane[], key: SortKey): Lane[] {
@@ -267,7 +309,7 @@ export function sortLanes(lanes: Lane[], key: SortKey): Lane[] {
     const bv = sortValue(b, key);
     if (av === null && bv !== null) return 1;
     if (bv === null && av !== null) return -1;
-    if (av !== null && bv !== null && av !== bv) return av - bv;
+    if (av !== null && bv !== null && av !== bv) return SORT_HIGHER[key] ? bv - av : av - bv;
     return (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0);
   });
 }
@@ -496,8 +538,27 @@ export function metricRows(): MetricRow[] {
       better: null,
       cell: (l) => text(l.requestedModel ? l.requestedModel : 'CLI default'),
     },
+    {
+      key: 'effort',
+      group: 'Run',
+      label: 'Thinking effort (requested)',
+      better: null,
+      cell: (l) => text(l.effort ? l.effort : 'CLI default'),
+    },
     { key: 'cli', group: 'Run', label: 'CLI version', better: null, cell: (l) => text(l.metrics.cliVersion) },
     { key: 'cmd', group: 'Run', label: 'Command line', better: null, cell: (l) => text(l.commandLine, true) },
+
+    // An opinion, not a measurement: it is labelled as one and never marked "best".
+    {
+      key: 'judge',
+      group: 'AI judge',
+      label: 'AI judge score',
+      better: null,
+      cell: (l) =>
+        l.judge
+          ? { value: null, text: judgeScoreText(l.judge.score), badge: 'opinion', badgeTitle: OPINION_TOOLTIP }
+          : { value: null, text: 'not judged' },
+    },
   ];
   return rows;
 }
@@ -516,7 +577,7 @@ export function costText(lane: Lane): string {
   return lane.metrics.cost.source === 'estimated' ? `${fmtMoney(usd)} (est.)` : fmtMoney(usd);
 }
 
-export function resultsMarkdown(race: Race, ranked: Lane[]): string {
+export function resultsMarkdown(race: Race, ranked: Lane[], sub: (lane: Lane) => string = laneSub): string {
   const positions = finishPositions(race.lanes);
   const lines: string[] = [];
   lines.push(`**Agent Derby**: ${mdEscape(truncate(race.setup.task, 200))}`);
@@ -528,7 +589,7 @@ export function resultsMarkdown(race: Race, ranked: Lane[]): string {
     const tokens = totalTokens(l.metrics.tokens);
     const c = l.metrics.code;
     lines.push(
-      `| ${pos ?? ''} | ${mdEscape(l.agentName)} | ${mdEscape(laneModel(l))} | ${stateLabel(l.state)} | ${fmtDuration(
+      `| ${pos ?? ''} | ${mdEscape(l.agentName)} | ${mdEscape(sub(l))} | ${stateLabel(l.state)} | ${fmtDuration(
         l.metrics.time.wallMs,
       )} | ${costText(l)} | ${tokens === null ? NOT_REPORTED : fmtInt(tokens)} | ${
         c ? `+${fmtInt(c.linesAdded)} / -${fmtInt(c.linesRemoved)}` : NOT_REPORTED
@@ -543,6 +604,17 @@ export function resultsMarkdown(race: Race, ranked: Lane[]): string {
   if (!allDone(race.lanes)) notes.push('Race still running: these results are partial.');
   lines.push(notes.join(' '));
   return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Race summaries (history, suites)
+// ---------------------------------------------------------------------------
+
+/** `winner` may be a lane id or an agent name; show the agent name either way. */
+export function winnerName(r: RaceSummary): string | null {
+  if (!r.winner) return null;
+  const lanes = Array.isArray(r.lanes) ? r.lanes : [];
+  return lanes.find((l) => l.id === r.winner)?.agentName ?? lanes.find((l) => l.agentName === r.winner)?.agentName ?? r.winner;
 }
 
 // ---------------------------------------------------------------------------

@@ -156,6 +156,25 @@ async function main() {
       return tortoise();
     case 'owl':
       return owl();
+    case 'followup':
+      emit({ type: 'init', model: 'mock-followup-1', sessionId: 'mock-session', cliVersion: '1.0.0-mock' });
+      await turn('The follow-up asks for a change. Make a small, visible edit.', 900, { in: 1200, out: 160, cached: 900 });
+      await tool('edit', 'write', 'FOLLOWUP.md', 500, { output: 'created FOLLOWUP.md' }, () =>
+        write('FOLLOWUP.md', `# Follow-up\n\nHandled at ${new Date().toISOString()}.\n`),
+      );
+      await say('Applied the follow-up and noted it in FOLLOWUP.md.', 300);
+      emit({ type: 'result', ok: true, text: 'Applied the follow-up and noted it in FOLLOWUP.md.', turns: 1 });
+      return;
+    case 'judge':
+      // A scripted "judge": always the same canned opinion, for tests and demos.
+      emit({ type: 'init', model: 'mock-judge-1', cliVersion: '1.0.0-mock' });
+      await turn('Reading the result', 300, { in: 800, out: 90 });
+      emit({
+        type: 'message',
+        text: 'Here is my verdict:\n```json\n{"score": 7, "summary": "Scripted verdict from the mock judge.", "strengths": ["It runs"], "problems": ["This judge does not actually read the code"]}\n```',
+      });
+      emit({ type: 'result', ok: true, turns: 1 });
+      return;
     case 'crash':
       emit({ type: 'init', model: 'mock-gremlin-1', cliVersion: '1.0.0-mock' });
       await turn('Starting work', 600, { in: 900, out: 40 });

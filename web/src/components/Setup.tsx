@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, errorText } from '../api';
 import { slugify, splitArgs } from '../format';
-import { navigate, raceHash, recallSetup, rememberSetup } from '../router';
+import { navigate, raceHash, recallSetup, rememberSetup, suiteHash } from '../router';
 import { hub } from '../socket';
-import type { AgentInfo, CustomAgentConfig, Entrant, RaceSetup, RepoCheck, SystemInfo } from '../types';
+import type { AgentInfo, CustomAgentConfig, Entrant, RaceSetup, RepoCheck, SuiteRequest, SystemInfo } from '../types';
 import { LoginModal } from './Terminal';
 import { CopyButton, ErrorNote, Icon, Spinner, laneStyle } from './ui';
 
@@ -22,6 +22,9 @@ const GREMLIN_SCENARIOS: { value: string; label: string }[] = [
   { value: 'auth', label: 'auth: is not signed in' },
 ];
 
+const BASIC_SUPPORT_TOOLTIP =
+  "Agent Derby shows this agent's output as text. Tool calls, tokens and cost may show as not reported.";
+
 const ORIGIN_LABELS: Record<string, string> = {
   path: 'found on your PATH',
   managed: 'installed by Agent Derby',
@@ -35,10 +38,12 @@ interface Row {
   model: string;
   custom: boolean;
   scenario: string;
+  /** '' = the CLI's default effort. */
+  effort: string;
 }
 
 let rowKey = 1;
-const newRow = (agentId: string, model = '', scenario = 'crash'): Row => ({ key: rowKey++, agentId, model, custom: false, scenario });
+const newRow = (agentId: string, model = '', scenario = 'crash', effort = ''): Row => ({ key: rowKey++, agentId, model, custom: false, scenario, effort });
 
 interface InstallState {
   running: boolean;
@@ -51,7 +56,7 @@ function rowsFromSetup(setup: RaceSetup | null): Row[] {
   if (!setup || !Array.isArray(setup.entrants)) return [];
   return setup.entrants
     .filter((e) => e && typeof e.agentId === 'string')
-    .map((e) => newRow(e.agentId, e.model ?? '', e.options?.scenario ?? 'crash'));
+    .map((e) => newRow(e.agentId, e.model ?? '', e.options?.scenario ?? 'crash', typeof e.effort === 'string' ? e.effort : ''));
 }
 
 // ---------------------------------------------------------------------------
@@ -78,6 +83,7 @@ function AgentCard({ agent, rows, install, onToggle, onAddLane, onRemoveRow, onR
     if (!list.includes('')) list.unshift('');
     return list;
   }, [agent.models]);
+  const efforts = Array.isArray(agent.efforts) ? agent.efforts.filter((e) => typeof e === 'string' && e !== '') : [];
   const logRef = useRef<HTMLPreElement>(null);
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -97,6 +103,11 @@ function AgentCard({ agent, rows, install, onToggle, onAddLane, onRemoveRow, onR
             <span className="agent-swatch" aria-hidden="true" />
             <span className="agent-name">{agent.name}</span>
           </div>
+        )}
+        {agent.support === 'basic' && (
+          <span className="tag support" title={BASIC_SUPPORT_TOOLTIP}>
+            basic support
+          </span>
         )}
         {onDelete && (
           <button type="button" className="btn ghost icon-only" onClick={() => onDelete(agent)} title={`Remove ${agent.name}`} aria-label={`Remove ${agent.name}`}>
@@ -217,6 +228,22 @@ function AgentCard({ agent, rows, install, onToggle, onAddLane, onRemoveRow, onR
                         onChange={(ev) => onRowChange(row.key, { custom: true, model: ev.target.value })}
                         spellCheck={false}
                       />
+                    )}
+                    {efforts.length > 0 && (
+                      <select
+                        className="effort"
+                        aria-label={`Thinking effort for ${agent.name}${rows.length > 1 ? `, lane ${i + 1}` : ''}`}
+                        title="How hard the model thinks. Default leaves it to the CLI."
+                        value={efforts.includes(row.effort) ? row.effort : ''}
+                        onChange={(ev) => onRowChange(row.key, { effort: ev.target.value })}
+                      >
+                        <option value="">Default effort</option>
+                        {efforts.map((e) => (
+                          <option key={e} value={e}>
+                            {e}
+                          </option>
+                        ))}
+                      </select>
                     )}
                   </>
                 )}
@@ -367,6 +394,11 @@ export function Setup() {
   const [finishCommand, setFinishCommand] = useState(prefill?.finishCommand ?? '');
   const [timeLimitMin, setTimeLimitMin] = useState(prefill?.timeLimitSec ? String(Math.round((prefill.timeLimitSec / 60) * 100) / 100) : '');
   const [costLimit, setCostLimit] = useState(prefill?.costLimitUsd ? String(prefill.costLimitUsd) : '');
+  const [blind, setBlind] = useState(prefill?.blind === true);
+  const [suiteOn, setSuiteOn] = useState(false);
+  const [suiteName, setSuiteName] = useState('');
+  /** Tasks 2, 3, … of a suite. Task 1 is `task`, so switching the suite on and off keeps what was typed. */
+  const [moreTasks, setMoreTasks] = useState<string[]>(['']);
 
   const [installs, setInstalls] = useState<Record<string, InstallState>>({});
   const [loginAgent, setLoginAgent] = useState<AgentInfo | null>(null);
@@ -485,8 +517,12 @@ export function Setup() {
   const timeNum = timeLimitMin.trim() === '' ? null : Number(timeLimitMin);
   const costNum = costLimit.trim() === '' ? null : Number(costLimit);
 
+  const suiteTasks = [task, ...moreTasks];
+  const emptyTasks = suiteTasks.filter((t) => !t.trim()).length;
+
   let reason: string | null = null;
   if (system && system.git === null) reason = 'Git is required to run a race.';
+  else if (suiteOn && emptyTasks > 0) reason = emptyTasks === 1 ? 'One task is still empty. Fill it in or remove it.' : `${emptyTasks} tasks are still empty. Fill them in or remove them.`;
   else if (!task.trim()) reason = 'Describe the task first.';
   else if (liveRows.length === 0) reason = 'Pick at least one agent.';
   else if (unsigned.length > 0) {
@@ -516,6 +552,7 @@ export function Setup() {
         const e: Entrant = { agentId: r.agentId };
         const agent = byId.get(r.agentId);
         if (agent?.kind !== 'mock' && r.model.trim()) e.model = r.model.trim();
+        if (agent?.kind !== 'mock' && r.effort && Array.isArray(agent?.efforts) && agent.efforts.includes(r.effort)) e.effort = r.effort;
         if (r.agentId === GREMLIN_ID) e.options = { scenario: r.scenario };
         return e;
       });
@@ -523,7 +560,17 @@ export function Setup() {
       if (finishCommand.trim()) setup.finishCommand = finishCommand.trim();
       if (timeNum !== null) setup.timeLimitSec = Math.round(timeNum * 60);
       if (costNum !== null) setup.costLimitUsd = costNum;
+      if (blind) setup.blind = true;
       rememberSetup(setup);
+      if (suiteOn) {
+        const { task: _first, ...rest } = setup;
+        const body: SuiteRequest = { ...rest, tasks: suiteTasks.map((t) => t.trim()) };
+        if (suiteName.trim()) body.name = suiteName.trim();
+        const made = await api.startSuite(body);
+        if (!made?.id) throw new Error('The server did not return a suite id.');
+        navigate(suiteHash(made.id));
+        return;
+      }
       const res = await api.startRace(setup);
       if (!res?.id) throw new Error('The server did not return a race id.');
       navigate(raceHash(res.id));
@@ -565,25 +612,79 @@ export function Setup() {
         <h1>
           <label htmlFor="task">What should they build?</label>
         </h1>
-        <textarea
-          id="task"
-          value={task}
-          onChange={(ev) => setTask(ev.target.value)}
-          placeholder="Describe the task. Every agent gets exactly these words."
-          rows={4}
-          autoFocus
-          onKeyDown={(ev) => {
-            if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') void start();
-          }}
-        />
-        <div className="chips">
-          <span className="muted small">Or try one:</span>
-          {EXAMPLES.map((ex) => (
-            <button key={ex} type="button" className="chip" onClick={() => setTask(ex)}>
-              {ex}
-            </button>
-          ))}
+        {suiteOn && (
+          <p className="muted suite-intro">
+            A suite runs these tasks one after another with the same agents, then adds the results up in one leaderboard.
+          </p>
+        )}
+        <div className={suiteOn ? 'suite-task' : undefined}>
+          {suiteOn && <span className="suite-task-num">1</span>}
+          <textarea
+            id="task"
+            value={task}
+            onChange={(ev) => setTask(ev.target.value)}
+            placeholder="Describe the task. Every agent gets exactly these words."
+            rows={suiteOn ? 2 : 4}
+            autoFocus
+            aria-label={suiteOn ? 'Task 1' : undefined}
+            onKeyDown={(ev) => {
+              if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') void start();
+            }}
+          />
         </div>
+        {suiteOn &&
+          moreTasks.map((t, i) => (
+            <div className="suite-task" key={i}>
+              <span className="suite-task-num">{i + 2}</span>
+              <textarea
+                value={t}
+                onChange={(ev) => setMoreTasks((cur) => cur.map((x, j) => (j === i ? ev.target.value : x)))}
+                placeholder="Describe another task."
+                rows={2}
+                aria-label={`Task ${i + 2}`}
+                onKeyDown={(ev) => {
+                  if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') void start();
+                }}
+              />
+              <button
+                type="button"
+                className="btn ghost icon-only"
+                onClick={() => setMoreTasks((cur) => cur.filter((_, j) => j !== i))}
+                disabled={moreTasks.length <= 1}
+                title={moreTasks.length <= 1 ? 'A suite needs at least two tasks' : `Remove task ${i + 2}`}
+                aria-label={`Remove task ${i + 2}`}
+              >
+                <Icon name="x" size={14} />
+              </button>
+            </div>
+          ))}
+        {suiteOn && (
+          <div className="suite-tools">
+            <button type="button" className="btn small" onClick={() => setMoreTasks((cur) => [...cur, ''])}>
+              <Icon name="plus" size={12} /> Add a task
+            </button>
+            <label className="field suite-name">
+              <span>Suite name (optional)</span>
+              <input type="text" value={suiteName} onChange={(ev) => setSuiteName(ev.target.value)} placeholder="Small web apps" />
+            </label>
+          </div>
+        )}
+        {!suiteOn && (
+          <div className="chips">
+            <span className="muted small">Or try one:</span>
+            {EXAMPLES.map((ex) => (
+              <button key={ex} type="button" className="chip" onClick={() => setTask(ex)}>
+                {ex}
+              </button>
+            ))}
+          </div>
+        )}
+        <label className="check suite-toggle">
+          <input type="checkbox" checked={suiteOn} onChange={(ev) => setSuiteOn(ev.target.checked)} />
+          <span>
+            <strong>Run several tasks (suite)</strong>
+          </span>
+        </label>
       </section>
 
       <section>
@@ -715,7 +816,7 @@ export function Setup() {
       </section>
 
       <section>
-        <details className="fold" open={!!(prefill?.finishCommand || prefill?.timeLimitSec || prefill?.costLimitUsd) || undefined}>
+        <details className="fold" open={!!(prefill?.finishCommand || prefill?.timeLimitSec || prefill?.costLimitUsd || prefill?.blind) || undefined}>
           <summary>Options</summary>
           <div className="form-grid">
             <label className="field span2">
@@ -741,6 +842,13 @@ export function Setup() {
               <span>Cost limit per agent, USD</span>
               <input type="number" min="0" step="any" inputMode="decimal" value={costLimit} onChange={(ev) => setCostLimit(ev.target.value)} placeholder="no limit" />
             </label>
+            <label className="check span2">
+              <input type="checkbox" checked={blind} onChange={(ev) => setBlind(ev.target.checked)} />
+              <span>
+                <strong>Blind race</strong>
+                <span className="muted">Hides which agent is in which lane until you pick a winner.</span>
+              </span>
+            </label>
           </div>
         </details>
       </section>
@@ -749,17 +857,23 @@ export function Setup() {
         <div className="start-info">
           {reason ? (
             <span className="start-reason">{reason}</span>
+          ) : suiteOn ? (
+            <span>
+              {suiteTasks.length} tasks, one race each with {laneCount === 1 ? '1 lane' : `${laneCount} lanes`}, run one after another{' '}
+              {sourceType === 'repo' ? 'from your repository' : 'from an empty project'}.{blind ? ' Blind.' : ''}
+            </span>
           ) : laneCount === 1 ? (
             <span>One agent is a solo run. Pick two or more to make it a race.</span>
           ) : (
             <span>
               {laneCount} lanes, all given the identical prompt, starting {sourceType === 'repo' ? 'from your repository' : 'from an empty project'}.
+              {blind ? ' Blind: agents stay hidden until you pick one.' : ''}
             </span>
           )}
           {startError && <ErrorNote>{startError}</ErrorNote>}
         </div>
         <button type="button" className="btn start" onClick={() => void start()} disabled={!!reason || starting} title={reason ?? undefined}>
-          {starting ? 'Starting…' : laneCount === 1 ? 'Start solo run' : 'Start race'}
+          {starting ? 'Starting…' : suiteOn ? 'Start suite' : laneCount === 1 ? 'Start solo run' : 'Start race'}
         </button>
       </div>
 

@@ -171,6 +171,12 @@ export const geminiAdapter: AgentAdapter = {
     return { command: ctx.exe, args, env };
   },
 
+  // Sessions are stored per project folder, so "latest" is this workspace's own session.
+  resume(ctx) {
+    const spec = geminiAdapter.start(ctx);
+    return { ...spec, args: ['--resume', 'latest', ...spec.args] };
+  },
+
   createParser(ctx) {
     return new GeminiParser(ctx.workspace);
   },

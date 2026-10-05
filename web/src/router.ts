@@ -1,19 +1,19 @@
 import { useEffect, useState } from 'react';
 import type { RaceSetup } from './types';
 
-export type Route = { name: 'setup' } | { name: 'history' } | { name: 'race'; id: string };
+export type Route = { name: 'setup' } | { name: 'history' } | { name: 'race'; id: string } | { name: 'suite'; id: string };
 
 export function parseHash(hash: string): Route {
   const path = hash.replace(/^#/, '').replace(/^\/+/, '');
   const parts = path.split('/').filter(Boolean);
-  if (parts[0] === 'race' && parts[1]) {
+  if ((parts[0] === 'race' || parts[0] === 'suite') && parts[1]) {
     let id = parts[1];
     try {
       id = decodeURIComponent(id);
     } catch {
       /* keep raw */
     }
-    return { name: 'race', id };
+    return { name: parts[0], id };
   }
   if (parts[0] === 'history') return { name: 'history' };
   return { name: 'setup' };
@@ -34,6 +34,7 @@ export function navigate(hash: string) {
 }
 
 export const raceHash = (id: string) => `#/race/${encodeURIComponent(id)}`;
+export const suiteHash = (id: string) => `#/suite/${encodeURIComponent(id)}`;
 
 // --- "Race again": the last setup survives navigation and reloads within the tab ---------------
 

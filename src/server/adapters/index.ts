@@ -7,12 +7,15 @@ import { sandboxStatus } from '../sandbox.js';
 import { claudeAdapter } from './claude.js';
 import { codexAdapter } from './codex.js';
 import { customAdapter, loadCustomConfigs } from './custom.js';
+import { copilotAdapter } from './copilot.js';
 import { geminiAdapter } from './gemini.js';
+import { opencodeAdapter } from './opencode.js';
+import { qwenAdapter } from './qwen.js';
 import { mockAdapters } from './mock.js';
 import type { AgentAdapter, Detection } from './types.js';
 
 /** The built-in agents. To add one: write an adapter file and add it to this list. */
-const builtin: AgentAdapter[] = [claudeAdapter, codexAdapter, geminiAdapter];
+const builtin: AgentAdapter[] = [claudeAdapter, codexAdapter, geminiAdapter, copilotAdapter, opencodeAdapter, qwenAdapter];
 
 export function allAdapters(): AgentAdapter[] {
   const custom = loadCustomConfigs().map(customAdapter);
@@ -76,6 +79,10 @@ export async function describeAgents(): Promise<AgentInfo[]> {
         models: modelSuggestions(a),
         docsUrl: a.docsUrl,
         sandboxNote: [a.sandboxNote, confinement].filter(Boolean).join(' ') || null,
+        efforts: a.efforts ?? [],
+        canResume: Boolean(a.resume),
+        canJudge: d.installed && d.auth !== 'missing',
+        support: a.support ?? 'full',
       };
     }),
   );

@@ -2,6 +2,8 @@ import type {
   AgentInfo,
   CustomAgentConfig,
   FeedItem,
+  FollowUpRequest,
+  JudgeRequest,
   KeepRequest,
   LaneDiff,
   ManualPreviewRequest,
@@ -9,7 +11,10 @@ import type {
   RaceSetup,
   RaceSummary,
   RepoCheck,
+  SuiteRequest,
+  SuiteView,
   SystemInfo,
+  VoteRequest,
 } from './types';
 
 export class ApiFailure extends Error {
@@ -70,6 +75,16 @@ export const api = {
   deleteRace: (id: string) => req<unknown>('DELETE', `/api/races/${e(id)}`),
   exportUrl: (id: string) => `/api/races/${e(id)}/export`,
   closeUrl: (id: string) => `/api/races/${e(id)}/close`,
+  replayUrl: (id: string) => `/api/races/${e(id)}/replay`,
+  followUp: (id: string, body: FollowUpRequest) => req<{ ok: true }>('POST', `/api/races/${e(id)}/followup`, body),
+  judge: (id: string, body: JudgeRequest) => req<{ ok: true }>('POST', `/api/races/${e(id)}/judge`, body),
+  vote: (id: string, body: VoteRequest) => req<{ ok: true }>('POST', `/api/races/${e(id)}/vote`, body),
+
+  startSuite: (body: SuiteRequest) => req<{ id: string }>('POST', '/api/suites', body),
+  suites: () => req<SuiteView[]>('GET', '/api/suites'),
+  suite: (id: string) => req<SuiteView>('GET', `/api/suites/${e(id)}`),
+  stopSuite: (id: string) => req<{ ok: true }>('POST', `/api/suites/${e(id)}/stop`),
+  deleteSuite: (id: string) => req<{ ok: true }>('DELETE', `/api/suites/${e(id)}`),
 
   feed: (raceId: string, laneId: string) => req<FeedItem[]>('GET', `${lanePath(raceId, laneId)}/feed`),
   diff: (raceId: string, laneId: string) => req<LaneDiff>('GET', `${lanePath(raceId, laneId)}/diff`),

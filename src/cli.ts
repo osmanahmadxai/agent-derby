@@ -26,12 +26,18 @@ Usage
   agent-derby history                 list past races
   agent-derby show <race>             print a past race's results
   agent-derby watch <race>            attach the terminal view to a race in the running app
+  agent-derby suite <file>           run every task in a file (one per line) and print a leaderboard
+  agent-derby followup <race> <text> send the same follow-up to every agent in a finished race
+  agent-derby judge <race> --with <agent[:model]>   ask an AI judge for its opinion of each result
+  agent-derby replay <race> [-o file.html]          save the race as one shareable web page
   agent-derby keep <race> <lane> --branch <name> | --folder <path>
   agent-derby delete <race>           delete a race, its workspaces and its branches
 
 Options for "run"
-  -a, --agents <list>    comma-separated, with an optional model after a colon:
-                         claude:opus,claude:fable,codex,gemini:gemini-2.5-pro,mock-hare
+  -a, --agents <list>    comma-separated, with an optional model after a colon and an
+                         optional thinking effort after an @:
+                         claude:opus@high,claude:sonnet,codex,copilot,opencode,mock-hare
+      --blind            blind race: the app hides who is in which lane until you vote
   -r, --repo <path>      start from an existing git repo (default: an empty project)
   -f, --finish <cmd>     a lane only finishes successfully if this passes, e.g. "npm test"
   -t, --time <limit>     per-agent time limit: 90s, 10m, 1h
@@ -54,8 +60,8 @@ interface Args {
   flags: Record<string, string | boolean>;
 }
 
-const ALIASES: Record<string, string> = { a: 'agents', r: 'repo', f: 'finish', t: 'time', c: 'cost', p: 'port', h: 'help', v: 'version' };
-const BOOLEAN = new Set(['plain', 'json', 'open', 'no-open', 'help', 'version', 'dev', 'exit']);
+const ALIASES: Record<string, string> = { a: 'agents', r: 'repo', f: 'finish', t: 'time', c: 'cost', p: 'port', h: 'help', v: 'version', o: 'out' };
+const BOOLEAN = new Set(['plain', 'json', 'open', 'no-open', 'help', 'version', 'dev', 'exit', 'blind']);
 
 function parseArgs(argv: string[]): Args {
   const out: Args = { _: [], flags: {} };
@@ -97,8 +103,11 @@ function parseEntrants(list: string): Entrant[] {
     .map((s) => s.trim())
     .filter(Boolean)
     .map((s) => {
-      const [agentId, ...model] = s.split(':');
-      const entrant: Entrant = { agentId: agentId!, model: model.join(':') };
+      // agent[:model][@effort]
+      const at = s.lastIndexOf('@');
+      const effort = at > 0 ? s.slice(at + 1) : '';
+      const [agentId, ...model] = (at > 0 ? s.slice(0, at) : s).split(':');
+      const entrant: Entrant = { agentId: agentId!, model: model.join(':'), effort };
       // "mock-gremlin:hang" picks the failure scenario rather than a model.
       if (agentId === 'mock-gremlin' && entrant.model) {
         entrant.options = { scenario: entrant.model };
@@ -318,6 +327,7 @@ async function run(args: Args): Promise<void> {
       finishCommand: typeof args.flags.finish === 'string' ? args.flags.finish : undefined,
       timeLimitSec: typeof args.flags.time === 'string' ? parseDuration(args.flags.time) : undefined,
       costLimitUsd: typeof args.flags.cost === 'string' ? Number(args.flags.cost) || undefined : undefined,
+      blind: Boolean(args.flags.blind),
     };
   }
 
@@ -350,6 +360,114 @@ async function run(args: Args): Promise<void> {
   if (final) printResults(app.engine.get(race.id) ?? final);
   console.log(`\nReopen any time: agent-derby show ${race.id}   ·   in the app: ${url}`);
   shutdown(0);
+}
+
+async function entrantsOrReady(args: Args): Promise<Entrant[]> {
+  const entrants = parseEntrants(typeof args.flags.agents === 'string' ? args.flags.agents : '');
+  if (entrants.length) return entrants;
+  const ready = (await describeAgents()).filter((a) => a.kind !== 'mock' && a.installed && a.auth !== 'missing');
+  if (ready.length === 0) throw new Error('No agent CLI is ready. See "agent-derby agents", or try the demo: --agents mock-hare,mock-tortoise,mock-owl');
+  return ready.map((a) => ({ agentId: a.id }));
+}
+
+async function suite(args: Args): Promise<void> {
+  const file = args._[1];
+  if (!file) throw new Error('Usage: agent-derby suite <file> --agents ...   (one task per line; lines starting with # are ignored)');
+  const text = file === '-' ? fs.readFileSync(0, 'utf8') : fs.readFileSync(file, 'utf8');
+  const tasks = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('#'));
+  if (tasks.length === 0) throw new Error('That file has no tasks in it');
+
+  installExitHandlers();
+  app = await startApp({ port: Number(args.flags.port) || DEFAULT_PORT, fallbackPort: true });
+  const created = await app.suites.create({
+    name: path.basename(file === '-' ? 'stdin' : file),
+    tasks,
+    entrants: await entrantsOrReady(args),
+    source: typeof args.flags.repo === 'string' ? { type: 'repo', path: args.flags.repo } : { type: 'empty' },
+    finishCommand: typeof args.flags.finish === 'string' ? args.flags.finish : undefined,
+    timeLimitSec: typeof args.flags.time === 'string' ? parseDuration(args.flags.time) : undefined,
+    costLimitUsd: typeof args.flags.cost === 'string' ? Number(args.flags.cost) || undefined : undefined,
+  });
+  console.log(`Suite ${created.id}: ${tasks.length} tasks. Watch it in the browser: ${app.url}/#/suite/${created.id}\n`);
+  let announced = 0;
+  for (;;) {
+    const view = app.suites.view(created.id)!;
+    while (announced < view.races.length && view.races[announced] && view.races[announced]!.lanes.every((l) => isTerminal(l.state))) {
+      const r = view.races[announced]!;
+      console.log(`Task ${announced + 1}/${tasks.length}: ${r.task.replace(/\s+/g, ' ').slice(0, 80)}`);
+      console.log(`  ${r.lanes.map((l) => `${l.agentName} ${l.state} ${fmtDuration(l.wallMs)}`).join(' | ')}${r.winner ? `   winner: ${r.winner}` : ''}`);
+      announced++;
+    }
+    if (view.state !== 'running') {
+      if (args.flags.json) console.log(JSON.stringify(view, null, 2));
+      else {
+        console.log(`\nLeaderboard (${view.state}) — ranked by tasks finished, then wins, then time\n`);
+        const head = ['#', 'Agent', 'Finished', 'Wins', 'Time', 'Avg place', 'Cost'];
+        const rows = view.leaderboard.map((r, i) => [
+          String(i + 1),
+          r.agentName,
+          `${r.finished}/${r.attempted}`,
+          String(r.wins),
+          fmtDuration(r.finishedMs),
+          r.avgPlace === null ? 'n/r' : r.avgPlace.toFixed(2),
+          r.costUsd === null ? 'n/r' : `${r.costEstimated ? '~' : ''}$${r.costUsd.toFixed(r.costUsd < 1 ? 4 : 2)}${r.costEstimated ? ' est.' : ''}${r.costIncomplete ? ' (partial)' : ''}`,
+        ]);
+        const widths = head.map((h, c) => Math.max(h.length, ...rows.map((r) => r[c]!.length)));
+        const line = (cells: string[]) => cells.map((c, i) => c.padEnd(widths[i]!)).join('  ');
+        console.log(line(head));
+        for (const r of rows) console.log(line(r));
+        console.log('\nn/r = not reported · est. = estimated from the price table · partial = some tasks reported no cost');
+      }
+      shutdown(view.leaderboard.some((r) => r.finished > 0) ? 0 : 1);
+    }
+    await new Promise((r) => setTimeout(r, 700));
+  }
+}
+
+async function followup(args: Args): Promise<void> {
+  const raceId = args._[1];
+  const prompt = args._.slice(2).join(' ').trim();
+  if (!raceId || !prompt) throw new Error('Usage: agent-derby followup <race> "what to do next"');
+  if (runningServer()) throw new Error('The Agent Derby app is running: send the follow-up from the race page there.');
+  installExitHandlers();
+  app = await startApp({ port: Number(args.flags.port) || DEFAULT_PORT, fallbackPort: true });
+  const url = `${app.url}/#/race/${raceId}`;
+  const r = await app.engine.followUp(raceId, prompt);
+  console.log(`Follow-up sent to: ${r.continued.join(', ')}${r.skipped.length ? `\nCannot continue: ${r.skipped.join(', ')}` : ''}\n`);
+  engineSource(app.engine, raceId, url).subscribe(plainReporter((line) => console.log(line)));
+  printResults(await waitForRace(app.engine, raceId));
+  shutdown(0);
+}
+
+async function judge(args: Args): Promise<void> {
+  const raceId = args._[1];
+  const withAgent = typeof args.flags.with === 'string' ? args.flags.with : '';
+  if (!raceId || !withAgent) throw new Error('Usage: agent-derby judge <race> --with <agent[:model]>   e.g. --with claude:sonnet');
+  const [agentId, ...model] = withAgent.split(':');
+  const engine = await offlineEngine();
+  await engine.judge(raceId, { agentId: agentId!, model: model.join(':') });
+  process.stdout.write('Judging');
+  while (engine.get(raceId)?.judging) {
+    process.stdout.write('.');
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  const race = engine.get(raceId)!;
+  console.log('\n\nAI judge verdicts. These are one model\'s opinion, not a measurement; the judge is not told which agent built what.\n');
+  for (const lane of race.lanes) {
+    if (!lane.judge) continue;
+    console.log(`${lane.agentName}: ${lane.judge.score}/10  (judged by ${lane.judge.judgeAgent}${lane.judge.judgeModel ? `, ${lane.judge.judgeModel}` : ''})`);
+    console.log(`  ${lane.judge.summary}`);
+    for (const x of lane.judge.strengths) console.log(`  + ${x}`);
+    for (const x of lane.judge.problems) console.log(`  - ${x}`);
+    console.log('');
+  }
+  if (race.judgeError) console.log(race.judgeError);
+  engine.shutdownNow();
+  killAllTracked();
+  process.exit(race.lanes.some((l) => l.judge) ? 0 : 1);
 }
 
 function runningServer(): { pid: number; port: number } | null {
@@ -421,6 +539,21 @@ async function main(): Promise<void> {
       return login(args._[1]);
     case 'history':
       return history();
+    case 'suite':
+      return suite(args);
+    case 'followup':
+    case 'follow-up':
+      return followup(args);
+    case 'judge':
+      return judge(args);
+    case 'replay': {
+      if (!args._[1]) throw new Error('Which race? See: agent-derby history');
+      const html = (await offlineEngine()).replayHtml(args._[1]);
+      const out = typeof args.flags.out === 'string' ? args.flags.out : `agent-derby-replay-${args._[1]}.html`;
+      fs.writeFileSync(out, html);
+      console.log(`Saved ${path.resolve(out)} (${Math.round(html.length / 1024)} KB). It is one self-contained page: open it or send it to anyone.`);
+      return;
+    }
     case 'watch':
       return watch(args._[1]);
     case 'show': {

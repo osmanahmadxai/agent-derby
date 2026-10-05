@@ -269,6 +269,154 @@ describe('race engine with mock agents', () => {
   }, 20_000);
 });
 
+describe('follow-up rounds, judge, blind vote and suites (mock agents)', () => {
+  let id = '';
+
+  it('names lanes after their model and effort, and drops an effort the agent does not have', async () => {
+    const created = await engine.create({
+      task: 'build a playable snake game in the browser',
+      entrants: [
+        { agentId: 'mock-hare', effort: 'low' },
+        { agentId: 'mock-owl', effort: 'ludicrous' },
+        { agentId: 'mock-gremlin', options: { scenario: 'crash' } },
+      ],
+      source: { type: 'empty' },
+      blind: true,
+    });
+    id = created.id;
+    const done = await settled(id);
+    expect(done.lanes.map((l) => [l.agentName, l.effort, l.state, l.round])).toEqual([
+      ['Mock Hare · low effort', 'low', 'finished', 1],
+      ['Mock Owl', '', 'finished', 1],
+      ['Mock Gremlin', '', 'failed', 1],
+    ]);
+    expect(done.blind).toBe(true);
+    expect(done.vote).toBeNull();
+  }, 40_000);
+
+  it('a follow-up continues every lane that can, in its own workspace, and keeps adding to its numbers', async () => {
+    const before = engine.get(id)!;
+    const hareBefore = { ...before.lanes[0]!.metrics };
+    const urlBefore = before.lanes[0]!.preview.url!;
+    await expect(engine.followUp(id, '   ')).rejects.toThrow(/Write the follow-up/);
+
+    const r = await engine.followUp(id, 'Add a note about what you changed');
+    // The crashed gremlin never reported a session, so there is nothing for it to continue.
+    expect(r).toEqual({ continued: ['Mock Hare · low effort', 'Mock Owl'], skipped: ['Mock Gremlin'] });
+    expect(engine.get(id)!.state).toBe('running');
+    await expect(engine.followUp(id, 'again')).rejects.toThrow(/Wait until every lane has ended/);
+    await expect(fetch(urlBefore)).rejects.toThrow(); // the old preview was stopped before the agent changed files under it
+
+    const done = await settled(id);
+    const [hare, owl, gremlin] = done.lanes;
+    expect([hare!.state, hare!.round, owl!.state, owl!.round, gremlin!.state, gremlin!.round]).toEqual(['finished', 2, 'finished', 2, 'failed', 1]);
+    expect(done.rounds.map((x) => x.prompt)).toEqual(['Add a note about what you changed']);
+    expect(done.state).toBe('finished');
+
+    // Totals grew; they did not restart.
+    expect(hare!.metrics.time.wallMs).toBeGreaterThan(hareBefore.time.wallMs);
+    expect(hare!.metrics.activity.toolCalls).toBe(hareBefore.activity.toolCalls + 1);
+    expect(hare!.metrics.activity.turns).toBe(hareBefore.activity.turns! + 1);
+    expect(hare!.metrics.tokens.input!).toBeGreaterThan(hareBefore.tokens.input!);
+    expect(hare!.metrics.code!.filesCreated).toBe(hareBefore.code!.filesCreated + 1);
+    expect(fs.existsSync(path.join(hare!.workspace, 'FOLLOWUP.md'))).toBe(true);
+    expect(fs.existsSync(path.join(hare!.workspace, 'index.html'))).toBe(true);
+
+    // The result is previewed again, and the feed records the round.
+    expect(hare!.preview.status).toBe('ready');
+    expect((await fetch(hare!.preview.url!)).status).toBe(200);
+    const feed = engine.feed(id, 'mock-hare');
+    expect(feed.some((f) => f.text === 'Round 2: Add a note about what you changed')).toBe(true);
+    expect(feed.every((f, i) => f.seq === i)).toBe(true);
+  }, 40_000);
+
+  it('a follow-up still works after a restart, from what was saved', async () => {
+    await engine.closeRace(id);
+    const again = new RaceEngine(sandbox);
+    try {
+      const r = await again.followUp(id, 'One more thing');
+      expect(r.continued).toEqual(['Mock Hare · low effort', 'Mock Owl']);
+      const end = Date.now() + 25_000;
+      while (again.get(id)!.lanes.some((l) => !['finished', 'failed'].includes(l.state)) && Date.now() < end) await new Promise((x) => setTimeout(x, 50));
+      const hare = again.get(id)!.lanes[0]!;
+      expect([hare.state, hare.round]).toEqual(['finished', 3]);
+      expect(hare.metrics.activity.toolCalls).toBe(6); // 4 in round one, then one per follow-up
+      expect(again.get(id)!.rounds).toHaveLength(2);
+    } finally {
+      again.shutdownNow();
+    }
+  }, 40_000);
+
+  it('records a blind vote', () => {
+    expect(() => engine.vote(id, 'nope')).toThrow(/Lane not found/);
+    engine.vote(id, 'mock-owl');
+    expect(engine.get(id)!.vote).toMatchObject({ laneId: 'mock-owl' });
+  });
+
+  it('asks a judge for an opinion of each result, as a separate thing from the measurements', async () => {
+    await expect(engine.judge(id, { agentId: 'nope' })).rejects.toThrow(/Unknown agent/);
+    const fresh = await engine.create({ task: 'x', entrants: [{ agentId: 'mock-hare' }, { agentId: 'mock-owl' }], source: { type: 'empty' } });
+    await settled(fresh.id);
+    await engine.judge(fresh.id, { agentId: 'mock-hare' });
+    expect(engine.get(fresh.id)!.judging).toBe(true);
+    await expect(engine.judge(fresh.id, { agentId: 'mock-hare' })).rejects.toThrow(/already working/);
+    const end = Date.now() + 20_000;
+    while (engine.get(fresh.id)!.judging && Date.now() < end) await new Promise((x) => setTimeout(x, 50));
+    const judged = engine.get(fresh.id)!;
+    expect(judged.judgeError).toBeNull();
+    for (const lane of judged.lanes) {
+      expect(lane.judge).toMatchObject({ score: 7, judgeAgent: 'Mock Hare', judgeModel: 'mock-judge-1', problems: ['This judge does not actually read the code'] });
+    }
+    // An opinion never changes the ranking or the measurements.
+    expect(judged.lanes.map((l) => l.state)).toEqual(['finished', 'finished']);
+    expect(fs.existsSync(path.join(process.env.AGENT_DERBY_HOME!, 'races', fresh.id, 'judge', 'mock-hare'))).toBe(false);
+  }, 40_000);
+
+  it('exports a replay page for a real race', () => {
+    const html = engine.replayHtml(id);
+    expect(html).toContain('Mock Hare · low effort'); // voted, so no longer hidden
+    expect(html).toContain('Round 2: Add a note about what you changed');
+    expect(html.length).toBeGreaterThan(5000);
+  });
+
+  it('runs a suite task by task and builds a leaderboard', async () => {
+    const { SuiteRunner } = await import('../src/server/race/suites.js');
+    const suites = new SuiteRunner(engine);
+    await expect(suites.create({ tasks: [], entrants: [{ agentId: 'mock-hare' }], source: { type: 'empty' } })).rejects.toThrow(/at least one task/);
+    await expect(suites.create({ tasks: ['a'], entrants: [{ agentId: 'nope' }], source: { type: 'empty' } })).rejects.toThrow(/Unknown agent/);
+
+    const suite = await suites.create({
+      name: 'smoke',
+      tasks: ['build a snake game', '# not a comment here, just a task', 'build a todo app'],
+      entrants: [{ agentId: 'mock-tortoise' }, { agentId: 'mock-hare' }, { agentId: 'mock-gremlin', options: { scenario: 'crash' } }],
+      source: { type: 'empty' },
+    });
+    expect(suites.view(suite.id)!.state).toBe('running');
+    const end = Date.now() + 60_000;
+    while (suites.view(suite.id)!.state === 'running' && Date.now() < end) await new Promise((x) => setTimeout(x, 100));
+    const view = suites.view(suite.id)!;
+    expect(view.state).toBe('finished');
+    expect(view.raceIds.every(Boolean)).toBe(true);
+    expect(view.races.map((r) => r!.winner)).toEqual(['Mock Hare', 'Mock Hare', 'Mock Hare']);
+    expect(engine.get(view.raceIds[1]!)!.suiteId).toBe(suite.id);
+    expect(view.leaderboard.map((r) => [r.agentName, r.finished, r.attempted, r.wins])).toEqual([
+      ['Mock Hare', 3, 3, 3],
+      ['Mock Tortoise', 3, 3, 0],
+      ['Mock Gremlin', 0, 3, 0],
+    ]);
+    expect(view.leaderboard[0]!.costUsd).toBeCloseTo(0.0183 * 3);
+    expect(view.leaderboard[1]!.costUsd).toBeNull(); // the tortoise never reports a cost, so there is no total to show
+    // Only the last task's previews are left running.
+    expect(engine.get(view.raceIds[0]!)!.lanes[1]!.preview.status).toBe('stopped');
+    expect(engine.get(view.raceIds[2]!)!.lanes[1]!.preview.status).toBe('ready');
+    expect(suites.list()[0]!.id).toBe(suite.id);
+
+    await suites.remove(suite.id);
+    expect(suites.view(suite.id)).toBeNull();
+    expect(engine.get(view.raceIds[0]!)).toBeNull();
+  }, 90_000);
+});
+
 describe.skipIf(sandbox.kind === 'none')('OS sandbox', () => {
   it('lets a command write inside its workspace but not outside it', async () => {
     const workspace = path.join(root, 'sandbox-ws');

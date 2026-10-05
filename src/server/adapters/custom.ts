@@ -85,6 +85,7 @@ export function customAdapter(c: CustomAgentConfig, index: number): AgentAdapter
     docsUrl: null,
     models: c.models ?? [],
     sandboxNote: 'Custom agent, run inside the Agent Derby sandbox.',
+    support: c.format === 'text' ? 'basic' : 'full',
     async detect() {
       const exe = which(c.command);
       if (!exe) return { installed: false, version: null, path: null, origin: null, auth: 'unknown', authDetail: null };
@@ -93,6 +94,7 @@ export function customAdapter(c: CustomAgentConfig, index: number): AgentAdapter
     },
     start(ctx) {
       const args = fillArgs(c.args, { prompt: ctx.prompt, model: ctx.model, workspace: ctx.workspace });
+      // (custom agents have no effort or resume support)
       return { command: ctx.exe, args, stdin: c.promptVia === 'stdin' ? ctx.prompt : undefined };
     },
     createParser(ctx) {

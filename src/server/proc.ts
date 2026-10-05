@@ -25,7 +25,7 @@ export function exec(
       spec.args,
       {
         cwd: opts.cwd,
-        env: opts.env ?? childEnv(),
+        env: envForCwd(opts.env ?? childEnv(), opts.cwd),
         timeout: opts.timeoutMs ?? 30_000,
         maxBuffer: opts.maxBuffer ?? 64 * 1024 * 1024,
         shell: spec.shell,
@@ -114,12 +114,26 @@ export function resolveSpawn(command: string, args: string[]): { command: string
   return { command: quote(command), args: args.map(quote), shell: true };
 }
 
+/**
+ * Make the environment agree with the working directory. PWD, OLDPWD and
+ * INIT_CWD are inherited from wherever Agent Derby was started, and some CLIs
+ * trust them over the real working directory: an agent would then work in the
+ * wrong folder. (Seen with a real agent; the sandbox blocked its writes.)
+ */
+export function envForCwd(env: NodeJS.ProcessEnv, cwd: SpawnOptions['cwd']): NodeJS.ProcessEnv {
+  if (!cwd) return env;
+  const out: NodeJS.ProcessEnv = { ...env, PWD: String(cwd) };
+  delete out.OLDPWD;
+  delete out.INIT_CWD;
+  return out;
+}
+
 /** Spawn a long-running child in its own process group so the whole tree can be stopped. */
 export function spawnGroup(command: string, args: string[], opts: SpawnOptions = {}): ChildProcess {
   const spec = resolveSpawn(command, args);
   return spawn(spec.command, spec.args, {
     ...opts,
-    env: opts.env ?? childEnv(),
+    env: envForCwd(opts.env ?? childEnv(), opts.cwd),
     shell: spec.shell || opts.shell,
     detached: !isWindows,
     windowsHide: true,
@@ -129,9 +143,9 @@ export function spawnGroup(command: string, args: string[], opts: SpawnOptions =
 /** Spawn a shell command line (finish commands, install/start commands of previews). */
 export function spawnShell(commandLine: string, opts: SpawnOptions = {}): ChildProcess {
   if (isWindows) {
-    return spawn(commandLine, [], { ...opts, env: opts.env ?? childEnv(), shell: true, windowsHide: true });
+    return spawn(commandLine, [], { ...opts, env: envForCwd(opts.env ?? childEnv(), opts.cwd), shell: true, windowsHide: true });
   }
-  return spawn('/bin/sh', ['-c', commandLine], { ...opts, env: opts.env ?? childEnv(), detached: true });
+  return spawn('/bin/sh', ['-c', commandLine], { ...opts, env: envForCwd(opts.env ?? childEnv(), opts.cwd), detached: true });
 }
 
 export function isAlive(pid: number): boolean {

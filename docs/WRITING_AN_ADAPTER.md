@@ -20,7 +20,9 @@ add it to `~/.agent-derby/agents.json` (see the README).
 | Stop | `stop(pid)` (optional) | Custom shutdown; by default the process group gets SIGINT, then SIGTERM, then SIGKILL |
 | Read usage | `readUsage(ctx)` (optional) | Fetch usage the CLI only exposes after the run (a session file, a usage command) |
 
-Optional extras: `login(exe)` for the Sign in button, `managed` for one-click
+Optional extras: `resume(ctx)` to continue a session for follow-up rounds (the
+session id comes from an `init` event your parser emits), `efforts` for the
+thinking-effort picker, `login(exe)` for the Sign in button, `managed` for one-click
 install from npm, `writablePaths()` for the CLI's own state folder (it must
 stay writable inside the sandbox), and `ownSandbox: true` if the CLI confines
 itself.
@@ -117,6 +119,7 @@ the whole integration.
 | `thinking`, `message` | Reasoning and assistant text. With `delta: true` and an `id`, text is appended to the same feed item |
 | `tool_start` | A tool call began. `kind` is one of `read`, `edit`, `command`, `search`, `web`, `plan`, `agent`, `other`. Send it with `pending: true` while the model is still writing the call, then again without `pending` when it actually runs |
 | `tool_end` | It finished. `ok`, `exitCode`, `output` |
+| | If the CLI only reports a tool once it is done, send `tool_start` with `agoMs` (how long ago it began, from the CLI's own timestamps) followed straight away by `tool_end` |
 | `turn` | One model round-trip began |
 | `usage` | Token counts. `mode: 'total'` replaces, `'add'` accumulates |
 | `cost` | Cost in USD **as reported by the CLI** |
@@ -135,6 +138,10 @@ the whole integration.
 - **Pass the prompt through untouched.** Use `stdin` or a single argument.
   Never build a shell string around it. Every agent must receive the same bytes.
 - **A parser must never throw.** Unknown lines become `raw` events.
+- **Make it work in the right folder.** The child's working directory is the
+  workspace and `PWD` is set to match, but if the CLI has an explicit
+  "work in this folder" flag, pass `ctx.workspace` to it. One real agent
+  ignored the working directory until told.
 - **Do not load the user's extras into an unattended run** when the CLI lets
   you avoid it (MCP servers, plugins with side effects).
 

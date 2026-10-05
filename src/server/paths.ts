@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const APP_VERSION = '0.1.1';
+export const APP_VERSION = '0.2.0';
 
 /** Data folder: races, workspaces, managed CLIs, user config. */
 export function homeDir(): string {

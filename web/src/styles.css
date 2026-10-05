@@ -2277,6 +2277,450 @@ div.agent-pick {
   font-weight: 700;
 }
 
+/* ---------- tags added with blind races, rounds, the AI judge and suites ---------- */
+
+.tag.opinion {
+  border-style: dashed;
+  border-color: var(--muted);
+}
+.tag.pick {
+  background: var(--flag);
+  color: var(--flag-ink);
+  border-color: var(--flag-ink);
+  cursor: default;
+}
+.tag.round {
+  margin-left: 0;
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+.tag.partial {
+  background: var(--warn-bg);
+  color: var(--warn);
+  border-style: dashed;
+  border-color: currentColor;
+}
+.tag.support {
+  flex: none;
+  margin-left: 0;
+  white-space: nowrap;
+}
+.check {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  cursor: pointer;
+  width: fit-content;
+}
+.check > span {
+  display: flex;
+  flex-direction: column;
+}
+.check input {
+  margin-top: 2px;
+}
+.btn.pick {
+  background: var(--flag);
+  color: var(--flag-ink);
+  border: 2px solid var(--flag-ink);
+  box-shadow: 3px 3px 0 var(--flag-ink);
+  font-family: var(--display);
+  font-size: 19px;
+  font-weight: 700;
+  padding: 5px 16px 4px;
+}
+.btn.pick.small {
+  font-size: 16px;
+  padding: 2px 10px 1px;
+  box-shadow: 2px 2px 0 var(--flag-ink);
+}
+.btn.pick:hover:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--flag-ink);
+}
+@media (prefers-color-scheme: dark) {
+  .btn.pick {
+    border-color: var(--flag);
+    box-shadow: 3px 3px 0 rgb(0 0 0 / 0.5);
+  }
+}
+
+/* ---------- setup: effort, suite ---------- */
+
+.agent-lane select.effort {
+  flex: 0 1 auto;
+  max-width: 46%;
+}
+.suite-intro {
+  margin-bottom: 10px;
+}
+.suite-task {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 8px;
+}
+.suite-task:first-of-type {
+  margin-top: 0;
+}
+.suite-task textarea {
+  flex: 1 1 auto;
+  min-height: 70px;
+  font-size: 17px;
+  padding: 11px 14px;
+}
+.suite-task .btn {
+  margin-top: 6px;
+}
+.suite-task-num {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  margin-top: 6px;
+  border-radius: 3px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-bottom: 3px solid var(--ink);
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 18px;
+  line-height: 26px;
+  text-align: center;
+}
+.suite-tools {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 10px 0 0 40px;
+}
+.suite-name {
+  flex: 0 1 320px;
+}
+.suite-toggle {
+  margin-top: 14px;
+}
+
+/* ---------- race page: blind banner, follow-up, rounds ---------- */
+
+.race-vote strong {
+  color: var(--ink);
+}
+.suite-link {
+  color: var(--ink);
+  font-weight: 600;
+}
+.blind-banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  background: color-mix(in srgb, var(--flag) 26%, var(--surface));
+  border-bottom: 1px solid var(--line);
+}
+.blind-mark {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+  background: var(--flag);
+  color: var(--flag-ink);
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 19px;
+  line-height: 24px;
+  text-align: center;
+}
+.blind-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.followup {
+  flex: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  align-items: start;
+  padding: 9px 16px 8px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.followup-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 12px;
+}
+.followup-label {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 17px;
+  line-height: 1.2;
+}
+.followup textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 36px;
+  max-height: 30vh;
+}
+.followup .note {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.lane-pick {
+  flex: none;
+  display: flex;
+  justify-content: center;
+  padding: 10px 11px 6px;
+}
+.lane-pick .btn {
+  width: 100%;
+}
+.rounds-note {
+  margin: 16px 0 0;
+}
+.round h4 {
+  margin: 14px 0 6px;
+}
+.round h4 .muted {
+  font-family: var(--body);
+  font-size: 12.5px;
+  font-weight: 400;
+}
+
+/* ---------- results: AI judge ---------- */
+
+.podium-judge {
+  font-size: 12.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.judge h2 .tag {
+  vertical-align: 5px;
+}
+.judge-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 10px 0;
+}
+.judge-form .field {
+  flex: 0 1 220px;
+}
+.verdicts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+  align-items: start;
+  margin-top: 12px;
+}
+.verdict {
+  background: var(--surface);
+  border: 1px dashed var(--muted);
+  border-top: 5px solid var(--lane);
+  border-radius: var(--r);
+  padding: 11px 14px 10px;
+  min-width: 0;
+}
+.verdict-head {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.verdict-head h3 {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 21px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.verdict-score {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 34px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  cursor: help;
+}
+.verdict-score small {
+  font-size: 15px;
+  color: var(--muted);
+}
+.verdict h4 {
+  margin: 10px 0 3px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.verdict ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.verdict li {
+  margin: 2px 0;
+  overflow-wrap: anywhere;
+}
+.verdict-by {
+  margin: 10px 0 0;
+}
+
+/* ---------- suite ---------- */
+
+.suite-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 0;
+  font-size: 12.5px;
+  margin: 0;
+}
+.suite-meta > span + span {
+  margin-left: 8px;
+  padding-left: 8px;
+  border-left: 1px solid var(--line);
+}
+.rs-stopped {
+  color: var(--muted);
+}
+.board {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 820px;
+  font-size: 13.5px;
+}
+.board th,
+.board td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+.board .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.board thead th {
+  font-weight: 500;
+  color: var(--muted);
+  border-bottom-color: var(--ink);
+  vertical-align: bottom;
+}
+.board tbody tr:last-child > * {
+  border-bottom: 0;
+}
+.board tbody th {
+  font-family: var(--display);
+  font-size: 19px;
+  font-weight: 700;
+}
+.board .val {
+  font-weight: 600;
+}
+.board-place {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 24px;
+  width: 64px;
+}
+.board tr.lead .board-place {
+  font-size: 34px;
+}
+.board tr.lead > * {
+  background: color-mix(in srgb, var(--flag) 22%, var(--surface));
+}
+.board-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+.board-bar {
+  width: 8px;
+  height: 22px;
+  border-radius: 2px;
+  background: var(--lane);
+  flex: none;
+}
+.suite-tasks {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.suite-task-row {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+.suite-task-row.waiting {
+  background: transparent;
+  border-style: dashed;
+  color: var(--muted);
+}
+.suite-task-row.live {
+  border-color: var(--ink);
+  box-shadow: 4px 4px 0 var(--flag);
+}
+.suite-task-row:not(.waiting):hover {
+  border-color: var(--ink);
+}
+.suite-task-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px 8px 10px;
+  text-decoration: none;
+}
+.suite-task-link .suite-task-num {
+  margin-top: 0;
+}
+.suite-task-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.suite-task-text {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 19px;
+  line-height: 1.15;
+}
+.suite-task-go {
+  flex: none;
+  font-weight: 600;
+  font-size: 13px;
+}
+.suite-live {
+  color: var(--ink);
+  font-weight: 700;
+}
+.suite-live::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--flag);
+  box-shadow: 0 0 0 1px var(--flag-ink);
+  margin-right: 6px;
+  animation: blink 1s steps(2, start) infinite;
+}
+.history-suites {
+  margin-top: 18px;
+}
+.history-races-title {
+  margin-top: 30px;
+}
+
 /* ---------- small screens ---------- */
 
 @media (max-width: 760px) {
@@ -2323,6 +2767,12 @@ div.agent-pick {
   }
   .source-choice {
     flex-direction: column;
+  }
+  .followup {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .suite-tools {
+    margin-left: 0;
   }
 }
 

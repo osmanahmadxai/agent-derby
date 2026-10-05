@@ -38,6 +38,14 @@ export interface AgentInfo {
   docsUrl: string | null;
   /** Human-readable note about how this agent is confined while racing. */
   sandboxNote: string | null;
+  /** Thinking-effort levels this CLI accepts, lowest first. Empty = no such setting. */
+  efforts: string[];
+  /** True when the agent can continue its session for a follow-up round. */
+  canResume: boolean;
+  /** True when this agent can be asked to judge results (installed and signed in). */
+  canJudge: boolean;
+  /** How completely Agent Derby understands this CLI's output. */
+  support: 'full' | 'basic';
 }
 
 /** A user-defined agent, stored in `<home>/agents.json`. */
@@ -72,6 +80,8 @@ export interface Entrant {
   model?: string;
   /** Adapter-specific options (the mock agents use `scenario`). */
   options?: Record<string, string>;
+  /** Thinking effort, one of the agent's `efforts`. '' or undefined = the CLI's default. */
+  effort?: string;
 }
 
 export type RaceSource = { type: 'empty' } | { type: 'repo'; path: string };
@@ -84,6 +94,8 @@ export interface RaceSetup {
   finishCommand?: string;
   timeLimitSec?: number;
   costLimitUsd?: number;
+  /** Blind race: the UI hides which agent is in which lane until the user votes. */
+  blind?: boolean;
 }
 
 export interface RepoCheck {
@@ -259,6 +271,22 @@ export interface PreviewInfo {
   note: string | null;
 }
 
+/**
+ * An AI judge's opinion of one result. This is one model's opinion, never a
+ * measurement, and the UI must label it that way.
+ */
+export interface JudgeVerdict {
+  /** 1 (poor) to 10 (excellent). */
+  score: number;
+  summary: string;
+  strengths: string[];
+  problems: string[];
+  /** Who judged, e.g. "Claude Code". The judge is not told which agent built what. */
+  judgeAgent: string;
+  judgeModel: string | null;
+  at: number;
+}
+
 export interface KeptInfo {
   mode: 'branch' | 'folder';
   target: string;
@@ -273,6 +301,12 @@ export interface Lane {
   color: string;
   /** Model requested in setup, '' = CLI default. */
   requestedModel: string;
+  /** Thinking effort requested in setup, '' = CLI default. */
+  effort: string;
+  /** 1 for the original task, 2 after the first follow-up, and so on. */
+  round: number;
+  /** Set once an AI judge has looked at this lane's result. */
+  judge: JudgeVerdict | null;
   state: LaneState;
   /** Plain-words reason for a non-success end state. */
   stateReason: string | null;
@@ -314,6 +348,16 @@ export interface Race {
   /** Set when the race could not be prepared at all. */
   error: string | null;
   appVersion: string;
+  /** Follow-up prompts sent to every agent after the original task, oldest first. */
+  rounds: { prompt: string; at: number }[];
+  blind: boolean;
+  /** The user's pick in a blind race. `laneId: null` = revealed without voting. Null = not yet voted. */
+  vote: { laneId: string | null; at: number } | null;
+  /** True while an AI judge is working. */
+  judging: boolean;
+  judgeError: string | null;
+  /** The suite this race belongs to, if any. */
+  suiteId: string | null;
 }
 
 export interface RaceSummary {
@@ -324,6 +368,60 @@ export interface RaceSummary {
   source: RaceSource;
   lanes: { id: string; agentName: string; color: string; state: LaneState; wallMs: number; model: string | null }[];
   winner: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Suites: the same agents on a list of tasks, with a combined leaderboard
+// ---------------------------------------------------------------------------
+
+export type SuiteState = 'running' | 'finished' | 'stopped';
+
+export interface Suite {
+  id: string;
+  name: string;
+  createdAt: number;
+  state: SuiteState;
+  tasks: string[];
+  /** Everything a race needs except the task. */
+  setup: Omit<RaceSetup, 'task'>;
+  /** One race per task, in order; null = not started yet. */
+  raceIds: (string | null)[];
+}
+
+export interface SuiteRow {
+  /** Stable identity of an entrant across the suite's races (agent + model + effort + position). */
+  key: string;
+  agentName: string;
+  color: string;
+  /** Tasks this entrant finished successfully. */
+  finished: number;
+  /** Tasks that have ended so far. */
+  attempted: number;
+  /** Tasks where it placed first (successful finish, fastest). */
+  wins: number;
+  /** Total time across the tasks it finished. */
+  finishedMs: number;
+  /** Average finishing place across attempted tasks; null until one has ended. */
+  avgPlace: Maybe<number>;
+  /** Total cost; null when no task reported one. */
+  costUsd: Maybe<number>;
+  /** True when some tasks reported a cost and others did not, so the total is incomplete. */
+  costIncomplete: boolean;
+  /** True when any part of the total is an estimate. */
+  costEstimated: boolean;
+  /** Average AI-judge score across judged tasks; null when none were judged. */
+  judgeAvg: Maybe<number>;
+}
+
+export interface SuiteView extends Suite {
+  races: (RaceSummary | null)[];
+  /** Best first: most finishes, then most wins, then least time. */
+  leaderboard: SuiteRow[];
+}
+
+export interface SuiteRequest extends Omit<RaceSetup, 'task'> {
+  name?: string;
+  tasks: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -411,6 +509,21 @@ export interface ManualPreviewRequest {
   /** When omitted, the automatic flow (manifest, then detection) is retried. */
   command?: string;
   type?: PreviewType;
+}
+
+export interface FollowUpRequest {
+  prompt: string;
+}
+
+export interface JudgeRequest {
+  /** Which agent does the judging. */
+  agentId: string;
+  model?: string;
+}
+
+export interface VoteRequest {
+  /** null = reveal without voting. */
+  laneId: string | null;
 }
 
 export interface ApiError {

@@ -159,6 +159,12 @@ export class CodexParser implements EventParser {
   }
 }
 
+function codexConfig(effort: string): string[] {
+  const args = ['-c', 'sandbox_workspace_write.network_access=true'];
+  if (effort) args.push('-c', `model_reasoning_effort="${effort}"`);
+  return args;
+}
+
 export const codexAdapter: AgentAdapter = {
   id: 'codex',
   name: 'Codex CLI',
@@ -168,6 +174,8 @@ export const codexAdapter: AgentAdapter = {
   installCommand: 'npm install -g @openai/codex',
   docsUrl: 'https://developers.openai.com/codex/cli',
   models: [],
+  // Values of the model_reasoning_effort config key, as listed in @openai/codex-sdk 0.160.0.
+  efforts: ['minimal', 'low', 'medium', 'high', 'xhigh'],
   sandboxNote: "Runs in Codex's own workspace-write sandbox with network access.",
   ownSandbox: true,
   writablePaths: () => codexWritable(),
@@ -194,21 +202,18 @@ export const codexAdapter: AgentAdapter = {
   },
 
   start(ctx) {
-    const args = [
-      'exec',
-      '--json',
-      '--skip-git-repo-check',
-      '--sandbox',
-      'workspace-write',
-      '-c',
-      'sandbox_workspace_write.network_access=true',
-      '--color',
-      'never',
-      '-C',
-      ctx.workspace,
-    ];
+    const args = ['exec', '--json', '--skip-git-repo-check', '--sandbox', 'workspace-write', ...codexConfig(ctx.effort), '--color', 'never', '-C', ctx.workspace];
     if (ctx.model) args.push('-m', ctx.model);
     args.push('-');
+    return { command: ctx.exe, args, stdin: ctx.prompt };
+  },
+
+  // `codex exec resume [SESSION_ID] [PROMPT]`, per `codex exec resume --help`. The sandbox
+  // policy is passed as config because `resume` does not take --sandbox.
+  resume(ctx) {
+    const args = ['exec', 'resume', '--json', '--skip-git-repo-check', '-c', 'sandbox_mode="workspace-write"', ...codexConfig(ctx.effort)];
+    if (ctx.model) args.push('-m', ctx.model);
+    args.push(ctx.sessionId, '-');
     return { command: ctx.exe, args, stdin: ctx.prompt };
   },
 

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, errorText } from '../api';
-import { fmtDate, fmtDuration, stateLabel, truncate } from '../format';
-import { raceHash } from '../router';
-import type { RaceSummary } from '../types';
+import { fmtDate, fmtDuration, stateLabel, truncate, winnerName } from '../format';
+import { raceHash, suiteHash } from '../router';
+import type { RaceSummary, SuiteView } from '../types';
 import { DeleteDialog } from './Results';
+import { SUITE_STATE_LABELS, SuiteDeleteDialog, normalizeSuite, suiteTitle } from './SuitePage';
 import { ErrorNote, Icon, Spinner, laneStyle } from './ui';
 
 const RACE_STATE: Record<string, string> = {
@@ -13,19 +14,14 @@ const RACE_STATE: Record<string, string> = {
   interrupted: 'interrupted',
 };
 
-/** `winner` may be a lane id or an agent name; show the agent name either way. */
-function winnerName(r: RaceSummary): string | null {
-  if (!r.winner) return null;
-  const lanes = Array.isArray(r.lanes) ? r.lanes : [];
-  return lanes.find((l) => l.id === r.winner)?.agentName ?? lanes.find((l) => l.agentName === r.winner)?.agentName ?? r.winner;
-}
-
 export function History() {
   const [races, setRaces] = useState<RaceSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<RaceSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [suites, setSuites] = useState<SuiteView[]>([]);
+  const [pendingSuite, setPendingSuite] = useState<SuiteView | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -35,7 +31,29 @@ export function History() {
     } catch (err) {
       setError(errorText(err));
     }
+    // Suites are an extra: a server without them must not break the race list.
+    try {
+      const list = await api.suites();
+      setSuites(Array.isArray(list) ? list.filter(Boolean).map(normalizeSuite) : []);
+    } catch {
+      setSuites([]);
+    }
   }, []);
+
+  const confirmDeleteSuite = async () => {
+    if (!pendingSuite) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await api.deleteSuite(pendingSuite.id);
+      setPendingSuite(null);
+      await load();
+    } catch (err) {
+      setDeleteError(errorText(err));
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   useEffect(() => {
     void load();
@@ -76,6 +94,55 @@ export function History() {
         <p className="loading">
           <Spinner /> Loading…
         </p>
+      )}
+      {suites.length > 0 && (
+        <section className="history-suites" aria-label="Suites">
+          <h2>Suites</h2>
+          <ul className="history-list">
+            {suites.map((s) => {
+              const done = s.races.filter((r) => r && (r.state === 'finished' || r.state === 'interrupted')).length;
+              const leader = s.leaderboard[0];
+              return (
+                <li key={s.id} className="history-row">
+                  <a className="history-main" href={suiteHash(s.id)}>
+                    <span className="history-task">{truncate(suiteTitle(s), 140)}</span>
+                    <span className="history-meta muted">
+                      <span>{fmtDate(s.createdAt)}</span>
+                      <span>{s.state === 'running' ? 'still running' : (SUITE_STATE_LABELS[s.state] ?? s.state)}</span>
+                      <span>
+                        {done} of {s.tasks.length} tasks done
+                      </span>
+                    </span>
+                    {leader && leader.finished > 0 && (
+                      <span className="history-lanes">
+                        <span className="history-lane" style={laneStyle(leader.color || '#7a86a8')}>
+                          <span className="swatch" />
+                          <span className="hl-name">{leader.agentName}</span>
+                          <span className="muted">
+                            leads, {leader.finished} of {leader.attempted} finished
+                          </span>
+                        </span>
+                      </span>
+                    )}
+                  </a>
+                  <button
+                    type="button"
+                    className="btn ghost icon-only"
+                    onClick={() => {
+                      setDeleteError(null);
+                      setPendingSuite(s);
+                    }}
+                    title="Delete this suite, its races and their workspaces"
+                    aria-label="Delete this suite"
+                  >
+                    <Icon name="trash" size={16} />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          <h2 className="history-races-title">Races</h2>
+        </section>
       )}
       {races && races.length === 0 && (
         <div className="empty">
@@ -135,6 +202,9 @@ export function History() {
             );
           })}
         </ul>
+      )}
+      {pendingSuite && (
+        <SuiteDeleteDialog busy={deleting} error={deleteError} onCancel={() => setPendingSuite(null)} onConfirm={confirmDeleteSuite} />
       )}
       {pending && (
         <DeleteDialog

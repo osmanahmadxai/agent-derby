@@ -12,6 +12,7 @@ import { PreviewManager } from './preview/manager.js';
 import { safeJoin, sendFile } from './preview/static.js';
 import { bindHost, isWindows, killAllTracked, reapOrphans } from './proc.js';
 import { RaceEngine } from './race/engine.js';
+import { SuiteRunner } from './race/suites.js';
 import { checkRepo, gitVersion } from './race/workspace.js';
 import { sandboxStatus } from './sandbox.js';
 import { openTerminal, ptyBackend, type Terminal } from './term.js';
@@ -34,6 +35,7 @@ export interface App {
   url: string;
   port: number;
   engine: RaceEngine;
+  suites: SuiteRunner;
   /** What was cleaned up from a previous run that was killed. */
   recovered: { races: number; processes: string[] };
   close(): void;
@@ -90,6 +92,8 @@ export async function startApp(opts: AppOptions): Promise<App> {
   const sandbox = await sandboxStatus();
   const engine = new RaceEngine(sandbox);
   const races = engine.recoverInterrupted();
+  const suites = new SuiteRunner(engine);
+  suites.recoverInterrupted();
 
   const server = http.createServer();
   let port: number;
@@ -302,6 +306,29 @@ export async function startApp(opts: AppOptions): Promise<App> {
     }
     if (is('GET', 'races')) return json(res, 200, engine.list());
 
+    if (parts[0] === 'suites') {
+      const bad = (e: unknown): never => {
+        const message = (e as Error).message;
+        throw new HttpError(/not found/i.test(message) ? 404 : 400, message);
+      };
+      if (is('POST', 'suites')) return json(res, 200, { id: (await suites.create(body).catch(bad)).id });
+      if (is('GET', 'suites')) return json(res, 200, suites.list());
+      if (is('GET', 'suites', ':id')) {
+        const view = suites.view(parts[1]!);
+        if (!view) throw new HttpError(404, 'Suite not found');
+        return json(res, 200, view);
+      }
+      if (is('POST', 'suites', ':id', 'stop')) {
+        try {
+          suites.stop(parts[1]!);
+        } catch (e) {
+          bad(e);
+        }
+        return json(res, 200, { ok: true });
+      }
+      if (is('DELETE', 'suites', ':id')) return json(res, 200, (await suites.remove(parts[1]!).catch(bad), { ok: true }));
+    }
+
     if (parts[0] === 'races' && parts[1]) {
       const raceId = parts[1];
       const laneId = parts[2] === 'lanes' ? parts[3] : undefined;
@@ -321,6 +348,15 @@ export async function startApp(opts: AppOptions): Promise<App> {
       if (is('DELETE', 'races', ':id')) return json(res, 200, (await wrap(() => engine.deleteRace(raceId)), { ok: true }));
       if (is('POST', 'races', ':id', 'stop')) return json(res, 200, (await wrap(() => engine.stopRace(raceId)), { ok: true }));
       if (is('POST', 'races', ':id', 'close')) return json(res, 200, (await wrap(() => engine.closeRace(raceId)), { ok: true }));
+      if (is('POST', 'races', ':id', 'followup')) return json(res, 200, { ok: true, ...(await wrap(() => engine.followUp(raceId, String(body.prompt ?? '')))) });
+      if (is('POST', 'races', ':id', 'judge')) return json(res, 200, (await wrap(() => engine.judge(raceId, body)), { ok: true }));
+      if (is('POST', 'races', ':id', 'vote')) return json(res, 200, (await wrap(() => engine.vote(raceId, body.laneId ?? null)), { ok: true }));
+      if (is('GET', 'races', ':id', 'replay')) {
+        const html = await wrap(() => engine.replayHtml(raceId));
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Disposition': `attachment; filename="agent-derby-replay-${raceId}.html"` });
+        res.end(html);
+        return;
+      }
       if (is('GET', 'races', ':id', 'export')) {
         const data = await wrap(() => engine.exportRace(raceId));
         res.writeHead(200, {
@@ -420,5 +456,5 @@ export async function startApp(opts: AppOptions): Promise<App> {
     server.closeAllConnections?.();
   };
 
-  return { url: `http://localhost:${port}`, port, engine, recovered: { races, processes }, close };
+  return { url: `http://localhost:${port}`, port, engine, suites, recovered: { races, processes }, close };
 }

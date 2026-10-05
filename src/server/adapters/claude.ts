@@ -13,6 +13,8 @@ import { clip, errorKind, tryJson, type AgentAdapter, type AgentEvent, type Even
  *   --disable-slash-commands         do not load personal skills: they differ per machine, so they
  *                                    skew a comparison, and one was seen to stall a headless run
  *   --max-budget-usd                 native cost limit
+ *   --effort <level>                 thinking effort (low, medium, high, xhigh, max)
+ *   --resume <session id>            continue a session, for follow-up rounds
  * Usage and cost arrive in the final `result` event (usage, modelUsage, total_cost_usd).
  */
 
@@ -366,6 +368,24 @@ export class ClaudeParser implements EventParser {
   }
 }
 
+function claudeArgs(ctx: { model: string; effort: string; costLimitUsd?: number }): string[] {
+  const args = [
+    '-p',
+    '--output-format',
+    'stream-json',
+    '--verbose',
+    '--include-partial-messages',
+    '--permission-mode',
+    'bypassPermissions',
+    '--strict-mcp-config',
+    '--disable-slash-commands',
+  ];
+  if (ctx.model) args.push('--model', ctx.model);
+  if (ctx.effort) args.push('--effort', ctx.effort);
+  if (ctx.costLimitUsd) args.push('--max-budget-usd', String(ctx.costLimitUsd));
+  return args;
+}
+
 export const claudeAdapter: AgentAdapter = {
   id: 'claude',
   name: 'Claude Code',
@@ -375,6 +395,7 @@ export const claudeAdapter: AgentAdapter = {
   installCommand: 'npm install -g @anthropic-ai/claude-code',
   docsUrl: 'https://code.claude.com/docs',
   models: ['fable', 'opus', 'sonnet', 'haiku'],
+  efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   sandboxNote: 'Permissions bypassed inside the Agent Derby sandbox; your MCP servers and personal skills are not loaded.',
   writablePaths: () => claudeWritable(),
   managed: { npmPackage: '@anthropic-ai/claude-code', bin: 'claude' },
@@ -414,20 +435,11 @@ export const claudeAdapter: AgentAdapter = {
   },
 
   start(ctx) {
-    const args = [
-      '-p',
-      '--output-format',
-      'stream-json',
-      '--verbose',
-      '--include-partial-messages',
-      '--permission-mode',
-      'bypassPermissions',
-      '--strict-mcp-config',
-      '--disable-slash-commands',
-    ];
-    if (ctx.model) args.push('--model', ctx.model);
-    if (ctx.costLimitUsd) args.push('--max-budget-usd', String(ctx.costLimitUsd));
-    return { command: ctx.exe, args, stdin: ctx.prompt };
+    return { command: ctx.exe, args: claudeArgs(ctx), stdin: ctx.prompt };
+  },
+
+  resume(ctx) {
+    return { command: ctx.exe, args: [...claudeArgs(ctx), '--resume', ctx.sessionId], stdin: ctx.prompt };
   },
 
   createParser(ctx) {

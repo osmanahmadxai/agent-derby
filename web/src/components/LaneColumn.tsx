@@ -1,6 +1,7 @@
-import { memo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { api, errorText } from '../api';
-import { ESTIMATE_TOOLTIP, fmtCompact, fmtInt, fmtMoney, isLive, laneFilesChanged, ordinal } from '../format';
+import { displayFeed } from '../display';
+import { ESTIMATE_TOOLTIP, HIDDEN_TEXT, fmtCompact, fmtInt, fmtMoney, isLive, laneFilesChanged, ordinal } from '../format';
 import { isTerminal, totalTokens } from '../types';
 import type { FeedItem, Lane } from '../types';
 import { Feed } from './Feed';
@@ -21,6 +22,13 @@ interface Props {
   onLoadFull: (laneId: string) => Promise<void>;
   tab: LaneTab;
   onTab: (laneId: string, tab: LaneTab) => void;
+  /** Blind race before the vote: `lane` is already anonymised; this hides what is left. */
+  hidden?: boolean;
+  /** The user's pick in a blind race. */
+  picked?: boolean;
+  /** Present once a blind race is ready for its vote. */
+  onPick?: (laneId: string) => void;
+  voting?: boolean;
 }
 
 const PREVIEW_DOT: Record<string, string> = {
@@ -41,6 +49,10 @@ export const LaneColumn = memo(function LaneColumn({
   onLoadFull,
   tab,
   onTab,
+  hidden = false,
+  picked = false,
+  onPick,
+  voting = false,
 }: Props) {
   const m = lane.metrics;
   const live = isLive(lane.state);
@@ -49,8 +61,9 @@ export const LaneColumn = memo(function LaneColumn({
   const [stopError, setStopError] = useState<string | null>(null);
 
   const tokens = totalTokens(m.tokens);
-  const model = m.model || lane.requestedModel;
-  const version = m.cliVersion;
+  const model = hidden ? HIDDEN_TEXT : `${m.model || lane.requestedModel || 'default model'}${lane.effort ? ` · ${lane.effort} effort` : ''}`;
+  const version = hidden ? null : m.cliVersion;
+  const shownFeed = useMemo(() => displayFeed(feed, hidden), [feed, hidden]);
   const nowText = lane.now.text || (lane.state === 'pending' ? 'Waiting for the start' : '');
 
   const stop = async () => {
@@ -80,12 +93,22 @@ export const LaneColumn = memo(function LaneColumn({
         </div>
         <div className="lane-id">
           <h2 title={lane.agentName}>{lane.agentName}</h2>
-          <p className="lane-sub" title={[model || 'default model', version ? `CLI ${version}` : null].filter(Boolean).join(', ')}>
-            <span>{model || 'default model'}</span>
+          <p className="lane-sub" title={[model, version ? `CLI ${version}` : null].filter(Boolean).join(', ')}>
+            {lane.round > 1 && (
+              <span className="tag round" title={`Follow-up round ${lane.round}. The time and counters cover every round.`}>
+                round {lane.round}
+              </span>
+            )}
+            <span>{model}</span>
             {version && <span className="lane-version">CLI {version}</span>}
           </p>
         </div>
         <div className="lane-state">
+          {picked && (
+            <span className="tag pick" title="You picked this lane before the agents were revealed.">
+              your pick
+            </span>
+          )}
           <StateBadge state={lane.state} />
           {!ended && lane.state !== 'pending' && (
             <button type="button" className="btn small" onClick={stop} disabled={stopping} title="Stop only this agent">
@@ -95,6 +118,14 @@ export const LaneColumn = memo(function LaneColumn({
         </div>
       </header>
       <div className="lane-stripe" aria-hidden="true" />
+
+      {onPick && (
+        <div className="lane-pick">
+          <button type="button" className="btn pick" onClick={() => onPick(lane.id)} disabled={voting}>
+            Pick this one
+          </button>
+        </div>
+      )}
 
       {(lane.stateReason || stopError) && <p className="lane-reason">{stopError ?? lane.stateReason}</p>}
 
@@ -168,8 +199,8 @@ export const LaneColumn = memo(function LaneColumn({
       <div className="lane-body">
         {tab === 'activity' && (
           <Feed
-            items={feed}
-            feedCount={lane.feedCount}
+            items={shownFeed}
+            feedCount={lane.feedCount - (feed.length - shownFeed.length)}
             fullLoaded={fullLoaded}
             onLoadFull={() => onLoadFull(lane.id)}
             live={!ended}
