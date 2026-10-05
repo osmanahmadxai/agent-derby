@@ -120,7 +120,7 @@ function AgentCard({ agent, rows, install, onToggle, onAddLane, onRemoveRow, onR
       {agent.installed && agent.auth === 'missing' && (
         <div className="agent-auth">
           <span className="warn-text">
-            <Icon name="alert" size={14} /> Not signed in{agent.authDetail ? `: ${agent.authDetail}` : ''}
+            <Icon name="alert" size={14} /> Not signed in{agent.authDetail && !/^not signed in$/i.test(agent.authDetail) ? `: ${agent.authDetail}` : ''}
           </span>
           {agent.canLogin ? (
             <button type="button" className="btn primary small" onClick={() => onLogin(agent)}>
@@ -489,6 +489,10 @@ export function Setup() {
   if (system && system.git === null) reason = 'Git is required to run a race.';
   else if (!task.trim()) reason = 'Describe the task first.';
   else if (liveRows.length === 0) reason = 'Pick at least one agent.';
+  else if (unsigned.length > 0) {
+    const names = [...new Set(unsigned.map((a) => a.name))].join(' and ');
+    reason = `${names} ${unsigned.length > 1 && names.includes(' and ') ? 'are' : 'is'} not signed in. Sign in on the card, or untick it.`;
+  }
   else if (sourceType === 'repo' && !repoPath.trim()) reason = 'Enter the path of your git repository.';
   else if (sourceType === 'repo' && repoCheck && !repoCheck.ok) reason = 'That folder is not a usable git repository.';
   else if (timeNum !== null && (!Number.isFinite(timeNum) || timeNum <= 0)) reason = 'The time limit must be a number of minutes above zero.';
@@ -750,11 +754,6 @@ export function Setup() {
           ) : (
             <span>
               {laneCount} lanes, all given the identical prompt, starting {sourceType === 'repo' ? 'from your repository' : 'from an empty project'}.
-            </span>
-          )}
-          {unsigned.length > 0 && !reason && (
-            <span className="warn-text small">
-              {unsigned[0]!.name} is not signed in and will probably fail right away.
             </span>
           )}
           {startError && <ErrorNote>{startError}</ErrorNote>}

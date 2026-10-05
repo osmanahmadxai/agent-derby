@@ -24,7 +24,7 @@ import {
   type ServerMessage,
   type ToolKind,
 } from '../../shared/types.js';
-import { detectCached, getAdapter, type AgentAdapter } from '../adapters/index.js';
+import { detectCached, getAdapter, invalidateDetection, type AgentAdapter } from '../adapters/index.js';
 import type { AgentEvent, EventParser, StartContext } from '../adapters/types.js';
 import { APP_VERSION, ensureDir, raceDir, racesDir, readJson, writeJsonAtomic } from '../paths.js';
 import { childEnv, isWindows, killTree, spawnGroup, spawnShell, stopTree, trackProcess, untrackProcess } from '../proc.js';
@@ -388,8 +388,16 @@ export class RaceEngine extends EventEmitter {
     for (const entrant of cleanSetup.entrants) {
       const adapter = getAdapter(entrant.agentId);
       if (!adapter) throw new Error(`Unknown agent "${entrant.agentId}"`);
-      const det = await detectCached(adapter);
+      let det = await detectCached(adapter);
       if (!det.installed || !det.path) throw new Error(`${adapter.name} is not installed`);
+      if (det.auth === 'missing') {
+        // The sign-in may have happened since we last looked (in another terminal, say): check once more.
+        invalidateDetection(adapter.id);
+        det = await detectCached(adapter);
+        if (det.auth === 'missing' || !det.path) {
+          throw new Error(`${adapter.name} is not signed in, so it cannot race. Sign in first: use "Sign in" on its card, or run: agent-derby login ${adapter.id}`);
+        }
+      }
       const n = (used.get(adapter.id) ?? 0) + 1;
       used.set(adapter.id, n);
       const laneId = n === 1 ? adapter.id : `${adapter.id}-${n}`;
