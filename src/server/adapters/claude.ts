@@ -10,6 +10,8 @@ import { clip, errorKind, tryJson, type AgentAdapter, type AgentEvent, type Even
  *   --include-partial-messages       token-level deltas, so text appears as it is written
  *   --permission-mode bypassPermissions   edits and commands pre-approved
  *   --strict-mcp-config              do not load the user's MCP servers into an unattended run
+ *   --disable-slash-commands         do not load personal skills: they differ per machine, so they
+ *                                    skew a comparison, and one was seen to stall a headless run
  *   --max-budget-usd                 native cost limit
  * Usage and cost arrive in the final `result` event (usage, modelUsage, total_cost_usd).
  */
@@ -50,6 +52,7 @@ function toolTarget(name: string, input: Record<string, any> | undefined, worksp
   if (typeof input.pattern === 'string') return input.path ? `${input.pattern} in ${rel(input.path)}` : input.pattern;
   if (typeof input.url === 'string') return input.url;
   if (typeof input.query === 'string') return input.query;
+  if (typeof input.skill === 'string') return input.skill;
   if (typeof input.description === 'string') return input.description;
   if (typeof input.path === 'string') return rel(input.path);
   if (Array.isArray(input.todos)) {
@@ -362,7 +365,7 @@ export const claudeAdapter: AgentAdapter = {
   installCommand: 'npm install -g @anthropic-ai/claude-code',
   docsUrl: 'https://code.claude.com/docs',
   models: ['fable', 'opus', 'sonnet', 'haiku'],
-  sandboxNote: 'Permissions bypassed inside the Agent Derby sandbox; your MCP servers are not loaded.',
+  sandboxNote: 'Permissions bypassed inside the Agent Derby sandbox; your MCP servers and personal skills are not loaded.',
   writablePaths: () => claudeWritable(),
   managed: { npmPackage: '@anthropic-ai/claude-code', bin: 'claude' },
 
@@ -410,6 +413,7 @@ export const claudeAdapter: AgentAdapter = {
       '--permission-mode',
       'bypassPermissions',
       '--strict-mcp-config',
+      '--disable-slash-commands',
     ];
     if (ctx.model) args.push('--model', ctx.model);
     if (ctx.costLimitUsd) args.push('--max-budget-usd', String(ctx.costLimitUsd));

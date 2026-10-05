@@ -122,7 +122,16 @@
       "target": [
         "AppImage",
         "deb"
-      ]
+      ],
+      "maintainer": "Agent Derby contributors <185453132+osmanahmadxai@users.noreply.github.com>"
     }
+  },
+  "homepage": "https://github.com/osmanahmadxai/agent-derby",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/osmanahmadxai/agent-derby.git"
+  },
+  "bugs": {
+    "url": "https://github.com/osmanahmadxai/agent-derby/issues"
   }
 }

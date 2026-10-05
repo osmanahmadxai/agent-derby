@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/demo.gif" alt="Three agents racing to build a snake game, then all three games playable in their lanes" width="900">
+  <img src="docs/assets/demo.gif" alt="A real race: Claude Opus 5.5, Sonnet 5.5 and Haiku 4.5 build a snake game, then all three games are playable in their lanes (time-lapse)" width="900">
 </p>
 
 ```bash
@@ -36,19 +36,20 @@ People argue about which coding agent is best, but the evidence is public benchm
 - **When an agent finishes, its result runs inside the app**: web apps and games in an iframe, terminal programs in a real terminal.
 
 <p align="center">
-  <img src="docs/assets/real-race.png" alt="A real race: Claude Opus against Claude Haiku against a demo agent, each game playable in its lane" width="820"><br>
-  <sub>A real race: Claude Code on Opus 5.5 against Claude Code on Haiku 4.5 (and a demo agent), each result playable in its lane.</sub>
+  <img src="docs/assets/racing.png" alt="Three Claude models mid-race, one lane each" width="820"><br>
+  <sub>Mid-race. Every screenshot on this page is from one real race: Claude Code on Opus 5.5, Sonnet 5.5 and Haiku 4.5, same prompt, real numbers. The GIF above is that race, sped up.</sub>
 </p>
 
 <p align="center">
-  <img src="docs/assets/previews.png" alt="All three results running side by side" width="820">
+  <img src="docs/assets/previews.png" alt="The three finished games running side by side" width="820"><br>
+  <sub>Afterwards: all three results running side by side, ready to play.</sub>
 </p>
 
 ## What you need
 
 - **Node.js 20+** and **git**.
 - At least one agent CLI. Missing ones are shown greyed out with an **Install** button that puts the official CLI into Agent Derby's own folder, and a **Sign in** button that runs the CLI's own login. A subscription is enough.
-- Nothing to try it out: the built-in **demo agents** replay a scripted run and spend no tokens.
+- Nothing at all to try it out: the built-in **demo agents** replay a scripted run and spend no tokens.
 
 ## Three ways to use it
 
@@ -66,7 +67,7 @@ Type a task, tick the agents, pick models, press **Start race**.
 
 ### In the terminal
 
-The screen splits into one pane per agent, with the same live activity and counters. (Captured from a race between the demo agents.)
+The screen splits into one pane per agent, with the same live activity and counters. (Captured from the same real race, attached with `agent-derby watch`.)
 
 ```bash
 agent-derby run "build a playable snake game in the browser" --agents claude:opus,claude:fable,codex
@@ -74,20 +75,26 @@ agent-derby run            # no arguments: asks for the task, agents and models
 ```
 
 ```text
- AGENT DERBY  build a playable snake game in the browser                                                      2.3s
-1 Mock Hare                  RUNNING│2 Mock Tortoise              RUNNING│3 Mock Owl                   RUNNING
-mock-hare-1 · v1.0.0-mock           │mock-tortoise-1 · v1.0.0-mock       │mock-owl-1 · v1.0.0-mock
-Editing index.html                  │Thinking                            │Thinking
-2.3s  tok 6.7k  n/r                 │2.3s  tok 2.7k  n/r                 │2.3s  tok 2.5k  n/r
-tools 2  files 0                    │tools 2  files 0                    │tools 1  files 0
-────────────────────────────────────│────────────────────────────────────│────────────────────────────────────
-# Model: mock-hare-1                │# Model: mock-tortoise-1            │# Model: mock-owl-1
-· snake game. No build step, no     │· PORT, static assets in public/,   │· keyboard input and ANSI drawing,
-· dependencies.                     │· and a smoke test.                 │· no dependencies.
-✓ search . 0.1s                     │✓ search . 0.2s                     │✓ web ANSI escape codes cursor… 0.6s
-· Write the whole game in one go:   │✓ command node --version 0.3s       │· Write the game loop with a fixed
-· grid, snake, food, keyboard and   │· Node is available. Start          │· tick
-… edit index.html                   │                                    │
+ AGENT DERBY  Build a playable snake game in the browser                                                 28.0s
+1 Claude Code · opus         RUNNING│2 Claude Code · sonnet      FINISHED│3 Claude Code · haiku        RUNNING
+claude-opus-5-5 · v2.1.289          │claude-sonnet-5-5 · v2.1.289        │claude-haiku-4-5-20251001 · v2.1.289
+Thinking                            │Finished                            │Thinking
+28.0s  tok 42k  n/r                 │17.3s  tok 46k  $0.0604             │28.0s  tok 85k  ~$0.0476 est.
+tools 1  files 0                    │tools 2  files 1  +101 -0           │tools 2  files 1
+────────────────────────────────────│▶ http://127.0.0.1:62084/           │────────────────────────────────────
+# Workspace ready. Confinement:     │────────────────────────────────────│I'll build a playable snake game in
+# macOS sandbox: writes limited to  │# macOS sandbox: writes limited to  │the browser with HTML, CSS, and
+# the workspace.                    │# the workspace.                    │JavaScript.
+# Model: claude-opus-5-5            │# Model: claude-sonnet-5-5          │✓ edit index.html 0.0s
+✓ command ls -la 0.1s               │✓ edit index.html 0.0s              │Now I'll create the agent-derby.json
+                                    │✓ edit agent-derby.json 0.0s        │file:
+                                    │…                                   │✓ edit agent-derby.json 0.0s
+                                    │I also created `agent-derby.json`,  │…
+                                    │which marks it as a static site with│## Features:
+                                    │`"root": "."` and no install or     │- **Classic Snake gameplay** with
+                                    │start command. Nothing is left      │smooth movement and collision
+                                    │running.                            │detection
+                                    │# Finished                          │- **Arrow keys or WASD** controls (
  n/r = not reported by the CLI · est. = estimated from the price table
  r results · o open in browser · s stop race · 1-9 stop lane · q quit
 ```
@@ -132,7 +139,7 @@ The results screen has a podium (successful finishes first, then time; re-sortab
 ## Isolation and the sandbox
 
 - Starting from a repo, each agent gets a **git worktree** on its own branch `agent-derby/<race>/<lane>`, created from your current commit. Uncommitted changes are not included. Starting empty, each gets a fresh folder with `git init`.
-- Agents run with file edits and commands pre-approved, so they are confined by the operating system instead:
+- Agents run with file edits and commands pre-approved, so they are confined by the operating system instead. Your MCP servers and personal Claude Code skills are not loaded into a race: they differ per machine and would skew the comparison.
 
 | Platform | Confinement |
 | --- | --- |
