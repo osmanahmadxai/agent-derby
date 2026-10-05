@@ -96,6 +96,8 @@ export class ClaudeParser implements EventParser {
   private streamedThinking = new Set<string>();
   private blockTypes = new Map<number, string>();
   private pendingTools = new Set<string>();
+  /** Counts thinking blocks, so each silent think gets its own progress line. */
+  private thinkingBlocks = 0;
   /** Tool calls being streamed: content-block index -> what we know so far. */
   private streamingTools = new Map<number, { id: string; name: string; json: string; target: string | null }>();
   private usageByMsg = new Map<string, MsgUsage>();
@@ -123,7 +125,12 @@ export class ClaudeParser implements EventParser {
           return [{ type: 'init', model: o.model, sessionId: o.session_id, cliVersion: o.claude_code_version }];
         }
         if (o.subtype === 'status' && o.status === 'requesting') return [{ type: 'thinking_active' }];
-        if (o.subtype === 'thinking_tokens') return [{ type: 'thinking_active' }];
+        if (o.subtype === 'thinking_tokens') {
+          // Claude Code hides the reasoning text of some models and sends only a running token estimate.
+          return typeof o.estimated_tokens === 'number'
+            ? [{ type: 'thinking_active', tokens: o.estimated_tokens, id: `${this.currentMsgId ?? 'msg'}:${this.thinkingBlocks}` }]
+            : [{ type: 'thinking_active' }];
+        }
         if (o.subtype === 'api_retry' || o.subtype === 'api_error') {
           return [{ type: 'error', message: String(o.error ?? o.message ?? 'API error, retrying'), retry: true, kind: 'other' }];
         }
@@ -203,7 +210,10 @@ export class ClaudeParser implements EventParser {
       case 'content_block_start': {
         const b = ev.content_block ?? {};
         this.blockTypes.set(ev.index, b.type);
-        if (b.type === 'thinking') out.push({ type: 'thinking_active' });
+        if (b.type === 'thinking') {
+          this.thinkingBlocks++;
+          out.push({ type: 'thinking_active' });
+        }
         if (b.type === 'tool_use' && b.id) {
           this.pendingTools.add(b.id);
           this.streamingTools.set(ev.index, { id: b.id, name: b.name, json: '', target: null });

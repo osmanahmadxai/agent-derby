@@ -60,6 +60,14 @@ describe('Claude Code parser (recorded output)', () => {
     expect(of(events, 'message').every((e) => e.delta)).toBe(true);
   });
 
+  it('passes on the running thinking estimate when the reasoning text is hidden', () => {
+    const meters = of(events, 'thinking_active').filter((e) => typeof e.tokens === 'number');
+    expect(meters.map((e) => e.tokens)).toEqual([50, 144, 50, 135]);
+    // two separate thinks, so two separate progress lines
+    expect(new Set(meters.map((e) => e.id)).size).toBe(2);
+    expect(of(events, 'thinking')).toEqual([]); // this recording exposes no reasoning text at all
+  });
+
   it('counts one turn per model round-trip', () => {
     expect(of(events, 'turn')).toHaveLength(2);
   });

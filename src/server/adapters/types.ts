@@ -8,8 +8,13 @@ import type { AgentKind, AuthState, TokenUsage, ToolKind } from '../../shared/ty
 export type AgentEvent =
   /** The CLI announced its session. */
   | { type: 'init'; model?: string; sessionId?: string; cliVersion?: string }
-  /** The model is thinking but the CLI does not expose the text. */
-  | { type: 'thinking_active' }
+  /**
+   * The model is thinking but the CLI does not expose the text. When the CLI
+   * reports how much it has thought so far, pass that along (`tokens` is the
+   * CLI's own running estimate for the thinking block identified by `id`), so
+   * a long silent think is visibly alive rather than looking stuck.
+   */
+  | { type: 'thinking_active'; tokens?: number; id?: string }
   /** Reasoning text. With `delta`, append to the item with the same `id`. */
   | { type: 'thinking'; text: string; id?: string; delta?: boolean }
   /** Assistant text. With `delta`, append to the item with the same `id`. */

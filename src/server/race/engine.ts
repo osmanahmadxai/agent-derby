@@ -621,9 +621,26 @@ export class RaceEngine extends EventEmitter {
           this.pushFeed(lr, { type: 'system', text: `Model: ${ev.model}` }, `init:${ev.model}`);
         }
         break;
-      case 'thinking_active':
-        if (lr.openTools.size === 0) this.setNow(lr, { kind: 'thinking', text: 'Thinking' });
+      case 'thinking_active': {
+        if (typeof ev.tokens === 'number' && ev.tokens > 0) {
+          // No reasoning text to show, but the CLI says how far along the think is: make that visible.
+          const amount = ev.tokens >= 1000 ? `${(ev.tokens / 1000).toFixed(1)}k` : String(ev.tokens);
+          const key = `thinkmeter:${ev.id ?? 'current'}`;
+          const text = `Thinking: about ${amount} tokens so far. The CLI does not show this model's reasoning text.`;
+          const existing = lr.byId.get(key);
+          if (existing) {
+            existing.text = text;
+            existing.streaming = true;
+            lr.dirty.add(existing);
+          } else if (!lr.byId.has(`thinking:${ev.id}`)) {
+            this.pushFeed(lr, { type: 'thinking', text, streaming: true }, key);
+          }
+          if (lr.openTools.size === 0) this.setNow(lr, { kind: 'thinking', text: `Thinking (about ${amount} tokens so far)` });
+        } else if (lr.openTools.size === 0 && lr.lane.now.kind !== 'thinking') {
+          this.setNow(lr, { kind: 'thinking', text: 'Thinking' });
+        }
         break;
+      }
       case 'thinking':
       case 'message': {
         const type = ev.type;
