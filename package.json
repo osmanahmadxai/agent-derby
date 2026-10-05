@@ -1,6 +1,6 @@
 {
   "name": "agent-derby",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Race AI coding agents (Claude Code, Codex CLI, Gemini CLI, or any other) on the same task, watch them live side by side, and try what each one built.",
   "license": "MIT",
   "type": "module",
