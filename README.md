@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/demo.gif" alt="A real race: Claude Opus 5.5, Sonnet 5.5 and Haiku 4.5 build a snake game, then all three games are playable in their lanes (time-lapse)" width="900">
+  <img src="docs/assets/demo.gif" alt="A real race between Claude Code, Copilot CLI and OpenCode building a snake game, then the finished games playable in their lanes (time-lapse)" width="900">
 </p>
 
 ```bash
@@ -36,13 +36,8 @@ People argue about which coding agent is best, but the evidence is public benchm
 - **When an agent finishes, its result runs inside the app**: web apps and games in an iframe, terminal programs in a real terminal.
 
 <p align="center">
-  <img src="docs/assets/racing.png" alt="Three Claude models mid-race, one lane each" width="820"><br>
-  <sub>Mid-race. Every screenshot on this page is from one real race: Claude Code on Opus 5.5, Sonnet 5.5 and Haiku 4.5, same prompt, real numbers. The GIF above is that race, sped up.</sub>
-</p>
-
-<p align="center">
-  <img src="docs/assets/previews.png" alt="The three finished games running side by side" width="820"><br>
-  <sub>Afterwards: all three results running side by side, ready to play.</sub>
+  <img src="docs/assets/racing.png" alt="Claude Code, Copilot CLI and OpenCode mid-race, one lane each" width="820"><br>
+  <sub>Mid-race, from a real race with the same prompt for all three: Claude Code on Opus 5.5, GitHub Copilot CLI, and OpenCode on one of its free models. The GIF above is the same race, sped up.</sub>
 </p>
 
 ## What you need
@@ -124,11 +119,21 @@ Installers for macOS, Windows and Linux are attached to each [release](https://g
 
 **Blind race.** Tick "Blind race" and the app hides which agent is in which lane: they become Agent A, B and C, in neutral colours, in a shuffled order. Try the results, pick the one you like best, and only then see who built it.
 
+<p align="center">
+  <img src="docs/assets/blind.png" alt="A blind race: lanes are called Agent A, B and C, each with a Pick this one button" width="820"><br>
+  <sub>A blind race with the demo agents.</sub>
+</p>
+
 **Follow-up rounds.** When a race ends, send every agent the same follow-up ("add a pause key", "now make it work on mobile"). Each one continues its own session in its own workspace, and its clock and counters keep adding up.
 
 **AI judge.** Ask any signed-in agent to review every result against the task. The judge sees the task and the changes, never which agent made them, and returns a score out of 10 with strengths and problems. A verdict is one model's opinion: it is labelled that way everywhere and never changes the ranking.
 
 **Suites.** One task is an anecdote. Give the app a list of tasks and it runs them one after another with the same agents, then shows a combined leaderboard: tasks finished, wins, time, cost.
+
+<p align="center">
+  <img src="docs/assets/suite.png" alt="A suite: a leaderboard across three tasks" width="820"><br>
+  <sub>A suite of three tasks with the demo agents.</sub>
+</p>
 
 **Replay.** Any race can be saved as a single self-contained web page that replays it, to send to someone or post. Nothing is uploaded.
 
@@ -143,6 +148,7 @@ Installers for macOS, Windows and Linux are attached to each [release](https://g
 | | |
 | --- | --- |
 | **Time** | wall time, time to first edit, time waiting on the model versus running commands |
+| **Limits** | optional time and cost limits per agent, and a stall limit: an agent that prints nothing at all for 5 minutes (adjustable) is stopped and marked as stalled |
 | **Tokens** | input, output, cache read and write, reasoning |
 | **Cost** | the figure the CLI reports; otherwise an estimate from [`config/pricing.json`](config/pricing.json), always labelled **est.** |
 | **Activity** | turns, tool calls by type, commands run and failed, errors and retries |

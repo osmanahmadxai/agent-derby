@@ -94,6 +94,11 @@ export interface RaceSetup {
   finishCommand?: string;
   timeLimitSec?: number;
   costLimitUsd?: number;
+  /**
+   * Stop a lane that has produced no output at all for this long, and mark it
+   * as stalled. Undefined = the default of 5 minutes; 0 = never.
+   */
+  idleLimitSec?: number;
   /** Blind race: the UI hides which agent is in which lane until the user votes. */
   blind?: boolean;
 }

@@ -42,6 +42,7 @@ Options for "run"
   -f, --finish <cmd>     a lane only finishes successfully if this passes, e.g. "npm test"
   -t, --time <limit>     per-agent time limit: 90s, 10m, 1h
   -c, --cost <usd>       per-agent cost limit in USD
+      --idle <limit>     stop an agent that prints nothing for this long (default 5m, "off" to disable)
       --plain            line-by-line output instead of panes (default when piped)
       --json             print the final race as JSON
       --open             also open the race in the browser
@@ -328,6 +329,7 @@ async function run(args: Args): Promise<void> {
       timeLimitSec: typeof args.flags.time === 'string' ? parseDuration(args.flags.time) : undefined,
       costLimitUsd: typeof args.flags.cost === 'string' ? Number(args.flags.cost) || undefined : undefined,
       blind: Boolean(args.flags.blind),
+      idleLimitSec: typeof args.flags.idle === 'string' ? (/^(off|0|none)$/i.test(args.flags.idle) ? 0 : parseDuration(args.flags.idle)) : undefined,
     };
   }
 

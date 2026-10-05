@@ -53,7 +53,10 @@ const FINISH_TIMEOUT = 15 * 60_000;
 const MAX_LANES = 8;
 const SNAPSHOT_FEED = 300;
 
-type StopReason = 'stopped' | 'timed_out' | 'over_budget';
+type StopReason = 'stopped' | 'timed_out' | 'over_budget' | 'stalled';
+
+/** A lane silent for this long is treated as stalled, unless the race says otherwise. */
+const DEFAULT_IDLE_LIMIT_SEC = 300;
 
 /** Things about a race that are not part of the public Race object. */
 interface Internal {
@@ -383,6 +386,7 @@ export class RaceEngine extends EventEmitter {
       timeLimitSec: setup.timeLimitSec && setup.timeLimitSec > 0 ? setup.timeLimitSec : undefined,
       costLimitUsd: setup.costLimitUsd && setup.costLimitUsd > 0 ? setup.costLimitUsd : undefined,
       blind: Boolean(setup.blind) || undefined,
+      idleLimitSec: typeof setup.idleLimitSec === 'number' && setup.idleLimitSec >= 0 ? setup.idleLimitSec : undefined,
     };
 
     const race: Race = {
@@ -725,7 +729,7 @@ export class RaceEngine extends EventEmitter {
           item.tool.target = ev.target ?? item.tool.target;
           lr.dirty.add(item);
         }
-        if (!ev.pending && !lr.toolStart.has(ev.id)) lr.toolStart.set(ev.id, t);
+        if (!ev.pending && !lr.toolStart.has(ev.id)) lr.toolStart.set(ev.id, Math.max(0, t - (ev.agoMs ?? 0)));
         lr.openTools.add(ev.id);
         this.closeStreaming(lr);
         this.setNow(lr, describeTool(ev.kind, ev.name, item.tool?.target ?? ev.target, Boolean(ev.pending)));
@@ -810,8 +814,15 @@ export class RaceEngine extends EventEmitter {
       if (lr.lane.state !== 'running') continue;
       active = true;
       const idle = Date.now() - lr.lastActivity;
-      if (idle > 45_000 && lr.openTools.size === 0) {
-        this.setNow(lr, { kind: 'waiting', text: `No output for ${Math.round(idle / 1000)}s` });
+      const idleLimit = rt.race.setup.idleLimitSec ?? DEFAULT_IDLE_LIMIT_SEC;
+      if (idleLimit > 0 && idle > idleLimit * 1000 && !lr.stopReason) {
+        this.stopLaneInternal(rt, lr, 'stalled');
+      } else if (idle > 45_000 && lr.openTools.size === 0) {
+        const left = idleLimit > 0 ? Math.max(0, Math.round(idleLimit - idle / 1000)) : null;
+        this.setNow(lr, {
+          kind: 'waiting',
+          text: `No output for ${Math.round(idle / 1000)}s${left !== null ? ` (stopped as stalled in ${left >= 90 ? `${Math.round(left / 60)} min` : `${left}s`})` : ''}`,
+        });
       }
       const limit = rt.race.setup.costLimitUsd;
       const cost = lr.tracker?.costNow() ?? null;
@@ -908,6 +919,10 @@ export class RaceEngine extends EventEmitter {
 
     // How did the agent itself end?
     if (lr.stopReason === 'stopped') return this.finishLane(rt, lr, 'stopped', 'Stopped by you');
+    if (lr.stopReason === 'stalled') {
+      const limit = rt.race.setup.idleLimitSec ?? DEFAULT_IDLE_LIMIT_SEC;
+      return this.finishLane(rt, lr, 'timed_out', `Stalled: no output at all for ${formatLimit(limit).replace('-', ' ')}s, so it was stopped`);
+    }
     if (lr.stopReason === 'timed_out') {
       return this.finishLane(rt, lr, 'timed_out', `Still running after the ${formatLimit(rt.race.setup.timeLimitSec ?? 0)} time limit`);
     }

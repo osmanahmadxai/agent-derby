@@ -392,6 +392,7 @@ export function Setup() {
   const [repoChecking, setRepoChecking] = useState(false);
   const [repoError, setRepoError] = useState<string | null>(null);
   const [finishCommand, setFinishCommand] = useState(prefill?.finishCommand ?? '');
+  const [idleLimitMin, setIdleLimitMin] = useState(prefill?.idleLimitSec !== undefined ? String(Math.round((prefill.idleLimitSec / 60) * 100) / 100) : '');
   const [timeLimitMin, setTimeLimitMin] = useState(prefill?.timeLimitSec ? String(Math.round((prefill.timeLimitSec / 60) * 100) / 100) : '');
   const [costLimit, setCostLimit] = useState(prefill?.costLimitUsd ? String(prefill.costLimitUsd) : '');
   const [blind, setBlind] = useState(prefill?.blind === true);
@@ -515,6 +516,7 @@ export function Setup() {
   const unsigned = liveRows.map((r) => byId.get(r.agentId)).filter((a): a is AgentInfo => !!a && a.auth === 'missing');
 
   const timeNum = timeLimitMin.trim() === '' ? null : Number(timeLimitMin);
+  const idleNum = idleLimitMin.trim() === '' ? null : Number(idleLimitMin);
   const costNum = costLimit.trim() === '' ? null : Number(costLimit);
 
   const suiteTasks = [task, ...moreTasks];
@@ -559,6 +561,7 @@ export function Setup() {
       const setup: RaceSetup = { task: task.trim(), entrants, source };
       if (finishCommand.trim()) setup.finishCommand = finishCommand.trim();
       if (timeNum !== null) setup.timeLimitSec = Math.round(timeNum * 60);
+      if (idleNum !== null && Number.isFinite(idleNum) && idleNum >= 0) setup.idleLimitSec = Math.round(idleNum * 60);
       if (costNum !== null) setup.costLimitUsd = costNum;
       if (blind) setup.blind = true;
       rememberSetup(setup);
@@ -837,6 +840,13 @@ export function Setup() {
             <label className="field">
               <span>Time limit per agent, minutes</span>
               <input type="number" min="0" step="any" inputMode="decimal" value={timeLimitMin} onChange={(ev) => setTimeLimitMin(ev.target.value)} placeholder="no limit" />
+            </label>
+            <label className="field">
+              <span>Stop a silent agent after, minutes</span>
+              <input type="number" min="0" step="any" inputMode="decimal" value={idleLimitMin} onChange={(ev) => setIdleLimitMin(ev.target.value)} placeholder="5" />
+              <small className="muted">
+                An agent that prints nothing at all for this long is stopped and marked as stalled. 0 turns this off.
+              </small>
             </label>
             <label className="field">
               <span>Cost limit per agent, USD</span>

@@ -198,6 +198,20 @@ describe('race engine with mock agents', () => {
     expect(done.lanes[0]!.stateReason).toBe('Stopped by you');
   }, 30_000);
 
+  it('stops a lane that goes completely silent, and says it stalled', async () => {
+    const created = await engine.create({
+      task: 'x',
+      entrants: [{ agentId: 'mock-gremlin', options: { scenario: 'hang' } }, { agentId: 'mock-hare' }],
+      source: { type: 'empty' },
+      idleLimitSec: 2,
+    });
+    const done = await settled(created.id, 20_000);
+    expect(done.lanes.map((l) => l.state)).toEqual(['timed_out', 'finished']);
+    expect(done.lanes[0]!.stateReason).toBe('Stalled: no output at all for 2 seconds, so it was stopped');
+    // The clock stopped when the stall was called, not when the stubborn process finally died.
+    expect(done.lanes[0]!.metrics.time.wallMs).toBeLessThan(4500);
+  }, 30_000);
+
   it('a failing finish command turns a completed run into a failure; a passing one records test counts', async () => {
     const created = await engine.create({
       task: 'x',
