@@ -203,7 +203,8 @@ describe('race engine with mock agents', () => {
       task: 'x',
       entrants: [{ agentId: 'mock-hare' }, { agentId: 'mock-tortoise' }],
       source: { type: 'empty' },
-      finishCommand: 'npm test',
+      // Guarded so npm cannot walk up out of the workspace and find this repository's own package.json.
+      finishCommand: 'test -f package.json && npm test',
     });
     const done = await settled(created.id);
     const [hare, tortoise] = done.lanes;
