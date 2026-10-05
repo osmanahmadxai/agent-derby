@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+      - name: Smoke test, a full mock race from the CLI
+        run: node dist/cli.js run "build a playable snake game in the browser" --agents mock-hare,mock-tortoise,mock-owl --plain --exit
+        env:
+          AGENT_DERBY_MOCK_SPEED: '10'
+
+  windows:
+    # Windows has no CI-verified process sandbox or git-worktree tests yet:
+    # this job checks that it type-checks, builds, and that the parsers and metrics pass.
+    name: Build and unit tests (windows-latest)
+    runs-on: windows-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npx vitest run test/adapters.test.ts test/metrics.test.ts
+
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t agent-derby:ci .
+      - name: Container starts and serves the UI
+        run: |
+          docker run -d --name derby -p 4747-4769:4747-4769 agent-derby:ci
+          for i in $(seq 1 30); do curl -fsS http://localhost:4747/api/system && break; sleep 1; done
+          curl -fsS http://localhost:4747/ > /dev/null
+          docker logs derby

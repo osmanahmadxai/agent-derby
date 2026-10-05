@@ -1,0 +1,215 @@
+<p align="center">
+  <img src="docs/assets/logo.svg" alt="Agent Derby" width="460">
+</p>
+
+<p align="center">
+  <b>Give the same coding task to several AI coding agents at once, watch them work side by side, then try what each one built.</b>
+</p>
+
+<p align="center">
+  <a href="https://github.com/osmanahmadxai/agent-derby/actions/workflows/ci.yml"><img src="https://github.com/osmanahmadxai/agent-derby/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-facc15" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/node-%E2%89%A5%2020-10a37f" alt="Node 20 or newer">
+  <img src="https://img.shields.io/badge/runs-100%25%20locally-4285f4" alt="Runs locally">
+</p>
+
+<p align="center">
+  <img src="docs/assets/demo.gif" alt="Three agents racing to build a snake game, then all three games playable in their lanes" width="900">
+</p>
+
+```bash
+npx https://github.com/osmanahmadxai/agent-derby/releases/latest/download/agent-derby.tgz
+```
+
+That starts a local server and opens the app in your browser. No account, no cloud, no API keys: the agent CLIs you are already signed in to do the work.
+
+---
+
+## Why
+
+People argue about which coding agent is best, but the evidence is public benchmarks on other people's code. Agent Derby lets you race agents on **your** task and judge the outcome, not just the numbers.
+
+- **Claude Code, Codex CLI, Gemini CLI**, or any other agent CLI you describe in a small config.
+- **Same family, different models**: race Claude Opus against Claude Fable, or one agent against itself.
+- **Every agent gets the identical prompt**, byte for byte, and starts at the same moment.
+- **Each agent works in its own sandboxed workspace.** Your working tree and branches are never touched.
+- **When an agent finishes, its result runs inside the app**: web apps and games in an iframe, terminal programs in a real terminal.
+
+<p align="center">
+  <img src="docs/assets/real-race.png" alt="A real race: Claude Opus against Claude Haiku against a demo agent, each game playable in its lane" width="820"><br>
+  <sub>A real race: Claude Code on Opus 5.5 against Claude Code on Haiku 4.5 (and a demo agent), each result playable in its lane.</sub>
+</p>
+
+<p align="center">
+  <img src="docs/assets/previews.png" alt="All three results running side by side" width="820">
+</p>
+
+## What you need
+
+- **Node.js 20+** and **git**.
+- At least one agent CLI. Missing ones are shown greyed out with an **Install** button that puts the official CLI into Agent Derby's own folder, and a **Sign in** button that runs the CLI's own login. A subscription is enough.
+- Nothing to try it out: the built-in **demo agents** replay a scripted run and spend no tokens.
+
+## Three ways to use it
+
+### In the browser
+
+```bash
+agent-derby
+```
+
+Type a task, tick the agents, pick models, press **Start race**.
+
+<p align="center">
+  <img src="docs/assets/setup.png" alt="Setup screen" width="820">
+</p>
+
+### In the terminal
+
+The screen splits into one pane per agent, with the same live activity and counters. (Captured from a race between the demo agents.)
+
+```bash
+agent-derby run "build a playable snake game in the browser" --agents claude:opus,claude:fable,codex
+agent-derby run            # no arguments: asks for the task, agents and models
+```
+
+```text
+ AGENT DERBY  build a playable snake game in the browser                                                      2.3s
+1 Mock Hare                  RUNNING│2 Mock Tortoise              RUNNING│3 Mock Owl                   RUNNING
+mock-hare-1 · v1.0.0-mock           │mock-tortoise-1 · v1.0.0-mock       │mock-owl-1 · v1.0.0-mock
+Editing index.html                  │Thinking                            │Thinking
+2.3s  tok 6.7k  n/r                 │2.3s  tok 2.7k  n/r                 │2.3s  tok 2.5k  n/r
+tools 2  files 0                    │tools 2  files 0                    │tools 1  files 0
+────────────────────────────────────│────────────────────────────────────│────────────────────────────────────
+# Model: mock-hare-1                │# Model: mock-tortoise-1            │# Model: mock-owl-1
+· snake game. No build step, no     │· PORT, static assets in public/,   │· keyboard input and ANSI drawing,
+· dependencies.                     │· and a smoke test.                 │· no dependencies.
+✓ search . 0.1s                     │✓ search . 0.2s                     │✓ web ANSI escape codes cursor… 0.6s
+· Write the whole game in one go:   │✓ command node --version 0.3s       │· Write the game loop with a fixed
+· grid, snake, food, keyboard and   │· Node is available. Start          │· tick
+… edit index.html                   │                                    │
+ n/r = not reported by the CLI · est. = estimated from the price table
+ r results · o open in browser · s stop race · 1-9 stop lane · q quit
+```
+
+| Command | What it does |
+| --- | --- |
+| `agent-derby` | Start the app and open the browser |
+| `agent-derby run [task]` | Race in the terminal. `-a claude:opus,codex` picks agents and models, `-r <repo>` starts from a git repo, `-f "npm test"` sets a finish command, `-t 10m` and `-c 2` set time and cost limits, `--plain` prints lines instead of panes, `--json` prints the final result |
+| `agent-derby agents` | List agents, versions and sign-in state |
+| `agent-derby install <agent>` / `login <agent>` | Install an agent's official CLI, run its sign-in |
+| `agent-derby history` / `show <race>` | Past races |
+| `agent-derby watch <race>` | Attach the terminal view to a race running in the app |
+| `agent-derby keep <race> <lane> --branch <name>` | Keep one agent's work (or `--folder <path>`) |
+| `agent-derby delete <race>` | Delete a race, its workspaces and its branches |
+
+Press `o` in the terminal view to open the same live race in the browser, and `agent-derby watch` to go the other way.
+
+### As a desktop app
+
+Installers for macOS, Windows and Linux are attached to each [release](https://github.com/osmanahmadxai/agent-derby/releases). The desktop app is the same UI in its own window, and it brings its own Node runtime, so Node.js does not need to be installed. The builds are not code-signed: on macOS right-click the app and choose Open the first time; on Windows choose "More info" then "Run anyway".
+
+## What gets measured
+
+<p align="center">
+  <img src="docs/assets/results.png" alt="Results: podium, share card and comparison table" width="820">
+</p>
+
+| | |
+| --- | --- |
+| **Time** | wall time, time to first edit, time waiting on the model versus running commands |
+| **Tokens** | input, output, cache read and write, reasoning |
+| **Cost** | the figure the CLI reports; otherwise an estimate from [`config/pricing.json`](config/pricing.json), always labelled **est.** |
+| **Activity** | turns, tool calls by type, commands run and failed, errors and retries |
+| **Code** | files created, modified, deleted, lines added and removed, new dependencies |
+| **Outcome** | finish command pass or fail, test counts, whether it builds, whether the preview started |
+| **Reproducibility** | model, CLI version, the exact command line, the prompt's SHA-256 |
+
+**If a CLI does not report something, the app says "not reported".** It never shows a guess as a measurement. Token counts are normalised so "input" always means uncached input, whichever vendor's convention the CLI uses.
+
+The results screen has a podium (successful finishes first, then time; re-sortable by cost, tokens or lines changed), a comparison table with the best value in each row marked, a diff viewer per agent, a result card you can export as an image, and **Keep this one**, which copies the chosen agent's work to a branch or folder you name. Nothing is ever merged for you.
+
+## Isolation and the sandbox
+
+- Starting from a repo, each agent gets a **git worktree** on its own branch `agent-derby/<race>/<lane>`, created from your current commit. Uncommitted changes are not included. Starting empty, each gets a fresh folder with `git init`.
+- Agents run with file edits and commands pre-approved, so they are confined by the operating system instead:
+
+| Platform | Confinement |
+| --- | --- |
+| macOS | Seatbelt (`sandbox-exec`): the whole machine is readable, the network works, but writes are limited to the agent's workspace, temp folders, package-manager caches and the agent CLI's own state folder |
+| Linux | The same rules with [bubblewrap](https://github.com/containers/bubblewrap), when `bwrap` is installed |
+| Windows | **No OS sandbox.** Agents are separated by workspace only, and the app says so in every lane |
+| Codex CLI | Uses its own `workspace-write` sandbox on every platform |
+
+The finish command and the code the agents wrote (install, build, start) run under the same confinement. Workspaces stay on disk under `~/.agent-derby/races` until you delete the race.
+
+## Instant preview
+
+Every prompt ends with a short fixed instruction asking the agent to write `agent-derby.json`, saying how to run the result (`web`, `static`, `terminal` or `other`, plus install and start commands, honouring `PORT`). When an agent finishes, the app installs dependencies, picks a free port, starts the result, waits for it to answer, and embeds it in that lane.
+
+If the manifest is missing or wrong, the project type is detected from its files. If that fails too, you get the logs and a box to type a command, and "preview failed" is recorded as a metric. Previews are stopped and their ports freed when you leave the race, when nobody has had the race open for two minutes, and when the app exits. A process registry cleans up after a crash on the next start.
+
+## Adding agents
+
+**No code:** use "Add any other agent" on the setup screen, or edit `~/.agent-derby/agents.json`:
+
+```json
+[
+  {
+    "id": "my-agent",
+    "name": "My Agent",
+    "command": "my-agent",
+    "args": ["run", "--model", "{model}", "--yes", "{prompt}"],
+    "promptVia": "arg",
+    "format": "text"
+  }
+]
+```
+
+`format` can be `text`, or `claude-stream-json`, `codex-json` or `gemini-stream-json` if the CLI speaks one of those formats, which gives it full metrics.
+
+**With code:** an adapter is one file with five jobs: detect, start, parse events, stop, read usage. See [docs/WRITING_AN_ADAPTER.md](docs/WRITING_AN_ADAPTER.md).
+
+## Docker
+
+```bash
+docker run --rm -it -p 4747-4769:4747-4769 -v agent-derby:/data ghcr.io/osmanahmadxai/agent-derby
+```
+
+Open <http://localhost:4747>. The container is the sandbox, and it cannot see sign-ins on your host: install and sign in to the agent CLIs inside it with the buttons in the app. For your existing sign-ins, run natively.
+
+## From source
+
+```bash
+git clone https://github.com/osmanahmadxai/agent-derby.git
+cd agent-derby
+npm install
+npm run build
+npm start          # or: node dist/cli.js run "..." --agents mock-hare,mock-tortoise,mock-owl
+npm test
+```
+
+`npm run desktop` opens the desktop shell, `npm run dist` builds installers for the current platform.
+
+## Configuration
+
+| File | Purpose |
+| --- | --- |
+| [`config/pricing.json`](config/pricing.json) | Prices used only to estimate cost when a CLI reports none. Override in `~/.agent-derby/pricing.json` |
+| [`config/models.json`](config/models.json) | Model suggestions for the picker. Any model name can be typed. Override in `~/.agent-derby/models.json` |
+| `~/.agent-derby/agents.json` | Your custom agents |
+| `AGENT_DERBY_HOME` | Move the data folder |
+| `AGENT_DERBY_NO_SANDBOX=1` | Turn the OS sandbox off |
+| `AGENT_DERBY_CLAUDE_BIN`, `_CODEX_BIN`, `_GEMINI_BIN` | Point at a specific executable |
+
+## Honest limits
+
+- **Claude Code** is verified end to end against the real CLI. **Codex CLI and Gemini CLI** adapters use flags checked against each CLI's `--help` and event formats taken from their published SDK types and source; their parsers are tested against recorded failure output and hand-written success samples, not yet against a recorded successful run.
+- **Windows** is built and unit-tested in CI but has no sandbox and has not been exercised end to end.
+- The shipped price table is nearly empty on purpose: add the models you care about, and estimates appear. Claude Code reports its own cost.
+- On a subscription, "cost" is the API-equivalent figure the CLI reports, not what you were billed.
+- The demo agents ignore the task and always build a snake game.
+
+## License
+
+[MIT](LICENSE)

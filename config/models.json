@@ -1,0 +1,6 @@
+{
+  "_comment": "Model suggestions shown in the model picker. Any other name can still be typed in. Copy this file to ~/.agent-derby/models.json to override it. An empty choice always means: let the CLI use its own default.",
+  "claude": ["fable", "opus", "sonnet", "haiku"],
+  "codex": ["gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.5"],
+  "gemini": ["auto", "gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash"]
+}

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 140" width="560" height="140" role="img" aria-label="Agent Derby">
+  <defs>
+    <pattern id="flag" width="16" height="16" patternUnits="userSpaceOnUse">
+      <rect width="16" height="16" fill="#f8fafc"/>
+      <rect width="8" height="8" fill="#0e1420"/>
+      <rect x="8" y="8" width="8" height="8" fill="#0e1420"/>
+    </pattern>
+  </defs>
+  <rect width="560" height="140" rx="20" fill="#0e1420"/>
+  <!-- three lanes, three agents, one finish line -->
+  <rect x="28" y="34" width="92" height="16" rx="8" fill="#d97757"/>
+  <rect x="28" y="62" width="68" height="16" rx="8" fill="#10a37f"/>
+  <rect x="28" y="90" width="50" height="16" rx="8" fill="#4285f4"/>
+  <rect x="132" y="28" width="16" height="84" rx="3" fill="url(#flag)"/>
+  <text x="170" y="70" font-family="'Avenir Next Condensed','Roboto Condensed','Arial Narrow',Arial,sans-serif" font-weight="800" font-size="50" fill="#f8fafc" letter-spacing="0.5">agent derby</text>
+  <text x="172" y="100" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="15" fill="#facc15">same task · every agent · side by side</text>
+</svg>

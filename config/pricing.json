@@ -1,0 +1,6 @@
+{
+  "_comment": "USD per million tokens. Used ONLY when a CLI reports no cost of its own; the result is then labelled as an estimate. Keys match a model name exactly or as a prefix (longest match wins). Copy this file to ~/.agent-derby/pricing.json to override or extend it. Models missing here simply show cost as 'not reported'.",
+  "models": {
+    "claude-haiku-4-5": { "input": 1.0, "output": 5.0, "cacheRead": 0.1, "cacheWrite": 2.0 }
+  }
+}
